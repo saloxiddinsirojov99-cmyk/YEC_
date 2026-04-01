@@ -1,0 +1,222 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                String             @id @default(cuid())
+  name              String
+  email             String             @unique
+  phone             String
+  password          String
+  role              UserRole           @default(CUSTOMER)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  avatar            String?
+  telegramChatId    String?            @unique
+  telegramUsername  String?            @unique
+  address           String?
+  lat               Decimal?           @db.Decimal(10, 7)
+  lng               Decimal?           @db.Decimal(10, 7)
+  carpetLikes       CarpetLike[]
+  orders            Order[]
+  promoCodeUsages   PromoCodeUsage[]
+  pushSubscriptions PushSubscription[]
+
+  @@map("users")
+}
+
+model OtpCode {
+  id              String     @id @default(cuid())
+  email           String
+  code            String
+  purpose         OtpPurpose
+  pendingName     String?
+  pendingPhone    String?
+  pendingPassword String?
+  expiresAt       DateTime
+  usedAt          DateTime?
+  createdAt       DateTime   @default(now())
+
+  @@index([email, purpose, createdAt])
+  @@map("otp_codes")
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  soldCount Int      @default(0)
+  image     String?
+  carpets   Carpet[]
+
+  @@map("categories")
+}
+
+model Carpet {
+  id              String       @id @default(cuid())
+  name            String
+  price           Decimal      @db.Decimal(10, 2)
+  size            String
+  material        String
+  description     String?
+  designCode      String?      // Gul kodi
+  images          String[]     @default([])
+  categoryId      String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  stock           Int          @default(0)
+  likes           Int          @default(0)
+  discountPercent Int          @default(0)
+  likedBy         CarpetLike[]
+  category        Category     @relation(fields: [categoryId], references: [id])
+  orderItems      OrderItem[]
+
+  @@index([categoryId])
+  @@index([createdAt])
+  @@map("carpets")
+}
+
+model Order {
+  id                    String          @id @default(cuid())
+  customerId            String
+  customerName          String
+  phone                 String
+  address               String
+  comment               String?
+  status                OrderStatus     @default(PENDING)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  cancelReason          String?
+  locationLat           Decimal?        @db.Decimal(10, 7)
+  locationLng           Decimal?        @db.Decimal(10, 7)
+  locationText          String?
+  paymentMethod         PaymentMethod   @default(CASH)
+  phone2                String?
+  deliveryDate          DateTime?
+  appliedPromoCode      String?
+  appliedPromoGiftImage String?
+  appliedPromoGiftName  String?
+  appliedPromoGiftPrice Int?
+  appliedPromoPercent   Int             @default(0)
+  appliedPromoType      PromoCodeType?
+  items                 OrderItem[]
+  customer              User            @relation(fields: [customerId], references: [id])
+  promoCodeUsage        PromoCodeUsage?
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([customerId])
+  @@map("orders")
+}
+
+model CarpetLike {
+  id        String   @id @default(cuid())
+  userId    String
+  carpetId  String
+  createdAt DateTime @default(now())
+  carpet    Carpet   @relation(fields: [carpetId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, carpetId])
+  @@map("carpet_likes")
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  carpetId  String?
+  quantity  Int
+  price     Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  carpet    Carpet?  @relation(fields: [carpetId], references: [id], onDelete: SetNull)
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([carpetId])
+  @@map("order_items")
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+model PromoCode {
+  id              String           @id @default(cuid())
+  code            String           @unique
+  discountPercent Int
+  type            PromoCodeType    @default(DISCOUNT)
+  minOrderAmount  Int              @default(0)
+  isActive        Boolean          @default(true)
+  startsAt        DateTime?
+  expiresAt       DateTime?
+  giftName        String?
+  giftImage       String?
+  giftPrice       Int?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  usages          PromoCodeUsage[]
+
+  @@index([code])
+  @@index([isActive])
+  @@map("promo_codes")
+}
+
+model PromoCodeUsage {
+  id          String    @id @default(cuid())
+  promoCodeId String
+  userId      String
+  orderId     String    @unique
+  usedAt      DateTime  @default(now())
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  promoCode   PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([promoCodeId, userId])
+  @@index([promoCodeId])
+  @@index([userId])
+  @@map("promo_code_usages")
+}
+
+enum UserRole {
+  SUPERADMIN
+  ADMIN
+  CUSTOMER
+}
+
+enum OrderStatus {
+  PENDING
+  ACCEPTED
+  DELIVERED
+  CANCELLED
+  ON_WAY
+}
+
+enum PromoCodeType {
+  DISCOUNT
+  GIFT
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+}
+
+enum OtpPurpose {
+  REGISTER
+  FORGOT_PASSWORD
+}

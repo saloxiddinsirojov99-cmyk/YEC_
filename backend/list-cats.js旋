@@ -1,0 +1,16 @@
+const { PrismaClient } = require('@prisma/client');
+const { join } = require('path');
+require('dotenv').config({ path: join(__dirname, '.env') });
+
+const prisma = new PrismaClient();
+
+async function main() {
+  const cats = await prisma.category.findMany();
+  console.log('CATEGORIES_START');
+  console.log(JSON.stringify(cats, null, 2));
+  console.log('CATEGORIES_END');
+}
+
+main()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());

@@ -1,0 +1,19 @@
+{
+  "name": "yec-market-monorepo",
+  "private": true,
+  "scripts": {
+    "dev": "npm run front:dev",
+    "dev:clean": "npm --prefix front run dev:clean",
+    "start": "npm --prefix backend run start",
+    "start:dev": "npm --prefix backend run start:dev",
+    "backend:dev": "npm --prefix backend run start:dev",
+    "front:dev": "npm --prefix front run dev",
+    "build": "npm --prefix backend run build && npm --prefix front run build",
+    "typecheck": "npm --prefix backend exec tsc --noEmit && npm --prefix front run typecheck",
+    "pm2:start": "pm2 start ecosystem.config.cjs --env production",
+    "pm2:stop": "pm2 stop yec-backend yec-frontend",
+    "pm2:restart": "pm2 restart yec-backend yec-frontend",
+    "pm2:logs": "pm2 logs yec-backend yec-frontend",
+    "pm2:status": "pm2 status"
+  }
+}

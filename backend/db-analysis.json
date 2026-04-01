@@ -1,0 +1,256 @@
+{
+  "joynamoz": [
+    {
+      "name": "Verona",
+      "size": "50x125",
+      "images": [
+        "/uploads/1773644674972-a925c6e1-e15a-4abf-a636-9b6673640305.jpg"
+      ]
+    },
+    {
+      "name": "Verona 0.5",
+      "size": "50x125",
+      "images": [
+        "/uploads/1773645151742-d7cc2007-0660-4ef1-adde-dfe35c8d575e.jpg"
+      ]
+    }
+  ],
+  "otherCarpets": [
+    {
+      "name": "Antique P101A",
+      "size": "250x450",
+      "images": [
+        "/images/collections/antique/P101A.jpg"
+      ]
+    },
+    {
+      "name": "Antique P102E",
+      "size": "300x400",
+      "images": [
+        "/images/collections/antique/P102E.jpg"
+      ]
+    }
+  ],
+  "sizes": [
+    {
+      "size": "450x600",
+      "count": "172"
+    },
+    {
+      "size": "300x400",
+      "count": "154"
+    },
+    {
+      "size": "400x600",
+      "count": "154"
+    },
+    {
+      "size": "350x500",
+      "count": "150"
+    },
+    {
+      "size": "400x500",
+      "count": "136"
+    },
+    {
+      "size": "300x500",
+      "count": "129"
+    },
+    {
+      "size": "500x800",
+      "count": "125"
+    },
+    {
+      "size": "500x700",
+      "count": "123"
+    },
+    {
+      "size": "1.20 x 1.9 m",
+      "count": "42"
+    },
+    {
+      "size": "1.20 x 4.4 m",
+      "count": "40"
+    },
+    {
+      "size": "1.20 x 2.4 m",
+      "count": "37"
+    },
+    {
+      "size": "1.20 x 2.9 m",
+      "count": "36"
+    },
+    {
+      "size": "1.20 x 4.3 m",
+      "count": "35"
+    },
+    {
+      "size": "1.20 x 3.8 m",
+      "count": "35"
+    },
+    {
+      "size": "1.20 x 1.6 m",
+      "count": "35"
+    },
+    {
+      "size": "1.20 x 0.9 m",
+      "count": "33"
+    },
+    {
+      "size": "1.20 x 2.7 m",
+      "count": "33"
+    },
+    {
+      "size": "1.20 x 2.2 m",
+      "count": "33"
+    },
+    {
+      "size": "1.20 x 2.1 m",
+      "count": "33"
+    },
+    {
+      "size": "1.20 x 4 m",
+      "count": "32"
+    },
+    {
+      "size": "1.20 x 4.9 m",
+      "count": "31"
+    },
+    {
+      "size": "1.20 x 1.5 m",
+      "count": "31"
+    },
+    {
+      "size": "1.20 x 2 m",
+      "count": "31"
+    },
+    {
+      "size": "1.20 x 3.5 m",
+      "count": "30"
+    },
+    {
+      "size": "1.20 x 1.8 m",
+      "count": "29"
+    },
+    {
+      "size": "1.20 x 1 m",
+      "count": "29"
+    },
+    {
+      "size": "1.20 x 3.1 m",
+      "count": "29"
+    },
+    {
+      "size": "1.20 x 2.3 m",
+      "count": "29"
+    },
+    {
+      "size": "1.20 x 1.1 m",
+      "count": "28"
+    },
+    {
+      "size": "1.20 x 4.1 m",
+      "count": "28"
+    },
+    {
+      "size": "1.20 x 2.5 m",
+      "count": "28"
+    },
+    {
+      "size": "1.20 x 2.8 m",
+      "count": "27"
+    },
+    {
+      "size": "250x450",
+      "count": "27"
+    },
+    {
+      "size": "1.20 x 2.6 m",
+      "count": "26"
+    },
+    {
+      "size": "1.20 x 4.8 m",
+      "count": "26"
+    },
+    {
+      "size": "1.20 x 4.7 m",
+      "count": "26"
+    },
+    {
+      "size": "1.20 x 1.4 m",
+      "count": "26"
+    },
+    {
+      "size": "1.20 x 3 m",
+      "count": "25"
+    },
+    {
+      "size": "1.20 x 3.6 m",
+      "count": "25"
+    },
+    {
+      "size": "1.20 x 4.2 m",
+      "count": "25"
+    },
+    {
+      "size": "1.20 x 3.7 m",
+      "count": "25"
+    },
+    {
+      "size": "1.20 x 3.3 m",
+      "count": "23"
+    },
+    {
+      "size": "1.20 x 1.2 m",
+      "count": "23"
+    },
+    {
+      "size": "1.20 x 3.4 m",
+      "count": "23"
+    },
+    {
+      "size": "1.20 x 1.7 m",
+      "count": "23"
+    },
+    {
+      "size": "1.20 x 4.5 m",
+      "count": "22"
+    },
+    {
+      "size": "1.20 x 5 m",
+      "count": "21"
+    },
+    {
+      "size": "1.20 x 4.6 m",
+      "count": "21"
+    },
+    {
+      "size": "1.20 x 3.9 m",
+      "count": "20"
+    },
+    {
+      "size": "1.20 x 3.2 m",
+      "count": "19"
+    },
+    {
+      "size": "500x600",
+      "count": "18"
+    },
+    {
+      "size": "1.20 x 1.3 m",
+      "count": "17"
+    },
+    {
+      "size": "250x400",
+      "count": "12"
+    },
+    {
+      "size": "1.20 x 0.8 m",
+      "count": "8"
+    },
+    {
+      "size": "50x125",
+      "count": "8"
+    }
+  ]
+}

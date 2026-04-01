@@ -1,0 +1,1 @@
+CREATE DATABASE yec_tashkent
