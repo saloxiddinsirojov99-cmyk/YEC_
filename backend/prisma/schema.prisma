@@ -22,7 +22,8 @@ model User {
   lat               Decimal?           @db.Decimal(10, 7)
   lng               Decimal?           @db.Decimal(10, 7)
   carpetLikes       CarpetLike[]
-  orders            Order[]
+  orders            Order[]            @relation("CustomerOrders")
+  courierOrders     Order[]            @relation("CourierOrders")
   promoCodeUsages   PromoCodeUsage[]
   pushSubscriptions PushSubscription[]
 
@@ -84,6 +85,9 @@ model Carpet {
 model Order {
   id                    String          @id @default(cuid())
   customerId            String
+  courierId             String?
+  courierName           String?
+  courierPhone          String?
   customerName          String
   phone                 String
   address               String
@@ -105,12 +109,14 @@ model Order {
   appliedPromoPercent   Int             @default(0)
   appliedPromoType      PromoCodeType?
   items                 OrderItem[]
-  customer              User            @relation(fields: [customerId], references: [id])
+  customer              User            @relation("CustomerOrders", fields: [customerId], references: [id])
+  courier               User?           @relation("CourierOrders", fields: [courierId], references: [id])
   promoCodeUsage        PromoCodeUsage?
 
   @@index([status])
   @@index([createdAt])
   @@index([customerId])
+  @@index([courierId])
   @@map("orders")
 }
 
@@ -195,6 +201,8 @@ model PromoCodeUsage {
 enum UserRole {
   SUPERADMIN
   ADMIN
+  COURIER
+  SELLER
   CUSTOMER
 }
 

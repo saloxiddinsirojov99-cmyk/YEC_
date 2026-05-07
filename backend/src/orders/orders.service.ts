@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { OrderStatus, Prisma } from '@prisma/client';
+import { OrderStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateOrderItemDto } from './dto/create-order-item.dto';
@@ -28,6 +28,8 @@ type ResolvedPromoCode = {
   giftName: string | null;
   giftImage: string | null;
   giftPrice: number | null;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 type CarpetSnapshot = {
@@ -92,6 +94,27 @@ export class OrdersService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        const currentUser = await tx.user.findUnique({
+          where: { id: customerId },
+          select: { id: true, telegramChatId: true },
+        });
+
+        if (!currentUser) {
+          throw new BadRequestException("Foydalanuvchi topilmadi.");
+        }
+
+        if (!currentUser.telegramChatId) {
+          throw new BadRequestException("Buyurtmani rasmiylashtirish uchun avval Telegram botimizga kirib hisobingizni tasdiqlang. Bot manzili: https://t.me/YEC_Toshkent_bot");
+        }
+
+        if (
+          !this.isInsideUzbekistan(Number(dto.locationLat), Number(dto.locationLng))
+        ) {
+          throw new BadRequestException(
+            "Tanlangan manzil O'zbekiston hududidan tashqarida. Buyurtma berib bo'lmaydi.",
+          );
+        }
+
         const carpetMap = await this.loadCarpetMap(tx, dto.items);
         const promoCode = await this.resolvePromoCode(
           tx,
@@ -295,6 +318,14 @@ export class OrdersService {
               role: true,
             },
           },
+          courier: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              telegramChatId: true,
+            },
+          },
           items: {
             include: {
               carpet: {
@@ -334,6 +365,68 @@ export class OrdersService {
     return `+998${compact}`;
   }
 
+  private async sendStatusTelegramToCustomer(
+    order: any,
+    message: string,
+  ): Promise<void> {
+    const directChatId = order.customer?.telegramChatId;
+    if (directChatId) {
+      await this.telegramService.sendRaw(directChatId, message);
+      return;
+    }
+
+    const targetPhone = this.formatPhoneNumber(order.phone);
+    const tgUser = await this.prisma.user.findFirst({
+      where: { phone: targetPhone, telegramChatId: { not: null } },
+      select: { telegramChatId: true },
+    });
+    if (tgUser?.telegramChatId) {
+      await this.telegramService.sendRaw(tgUser.telegramChatId, message);
+    }
+  }
+
+  private async sendOrderToCourier(order: any): Promise<void> {
+    const courierChatId = order.courier?.telegramChatId;
+    if (!courierChatId) return;
+
+    const itemsText = (order.items ?? [])
+      .map(
+        (item: any) =>
+          `- ${item.carpet?.name ?? "Noma'lum gilam"} x${item.quantity}`,
+      )
+      .join('\n');
+    const orderNumber = formatOrderNumber(order.id, order.createdAt);
+
+    const message =
+      `<b>Yangi yetkazib berish buyurtmasi</b>\n` +
+      `<b>Buyurtma:</b> #${orderNumber}\n` +
+      `<b>Mijoz:</b> ${order.customerName}\n` +
+      `<b>Tel 1:</b> ${this.formatPhoneNumber(order.phone)}\n` +
+      `${order.phone2 ? `<b>Tel 2:</b> ${this.formatPhoneNumber(order.phone2)}\n` : ''}` +
+      `<b>Manzil:</b> ${order.address}\n` +
+      `${order.locationText ? `<b>Lokatsiya:</b> ${order.locationText}\n` : ''}` +
+      `\n<b>Mahsulotlar:</b>\n${itemsText || "Noma'lum"}`;
+
+    await this.telegramService.sendRaw(courierChatId, message, {
+      inline_keyboard: [
+        [
+          {
+            text: 'Yetkazildi',
+            callback_data: `courier_delivered_${order.id}`,
+          },
+        ],
+      ],
+    });
+
+    if (order.locationLat && order.locationLng) {
+      await this.telegramService.sendLocation(
+        courierChatId,
+        Number(order.locationLat),
+        Number(order.locationLng),
+      );
+    }
+  }
+
   async findAll(query: OrderQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
@@ -352,6 +445,14 @@ export class OrdersService {
               email: true,
               phone: true,
               role: true,
+            },
+          },
+          courier: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              telegramChatId: true,
             },
           },
           items: {
@@ -393,6 +494,14 @@ export class OrdersService {
             role: true,
           },
         },
+        courier: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            telegramChatId: true,
+          },
+        },
         items: {
           include: {
             carpet: { include: { category: true } },
@@ -419,7 +528,38 @@ export class OrdersService {
   }
 
   async updateStatus(id: string, dto: UpdateOrderStatusDto, role: string) {
-    const order = await this.prisma.order.findUnique({ where: { id } });
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            telegramChatId: true,
+          },
+        },
+        courier: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            telegramChatId: true,
+          },
+        },
+        items: {
+          include: {
+            carpet: {
+              select: {
+                name: true,
+                size: true,
+                material: true,
+              },
+            },
+          },
+        },
+      },
+    });
     if (!order) {
       throw new NotFoundException('Buyurtma topilmadi.');
     }
@@ -457,6 +597,43 @@ export class OrdersService {
       throw new BadRequestException("Bekor qilish sababi ko'rsatilishi kerak.");
     }
 
+    let selectedCourier:
+      | {
+          id: string;
+          name: string;
+          phone: string;
+          telegramChatId: string | null;
+        }
+      | null = null;
+
+    if (nextStatus === OrderStatus.ON_WAY) {
+      const courierId = String(dto.courierId ?? order.courierId ?? '').trim();
+      if (courierId) {
+        selectedCourier = await this.prisma.user.findFirst({
+          where: {
+            id: courierId,
+            role: UserRole.COURIER,
+          },
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            telegramChatId: true,
+          },
+        });
+
+        if (!selectedCourier) {
+          throw new BadRequestException("Tanlangan kuryer topilmadi.");
+        }
+
+        if (!selectedCourier.telegramChatId) {
+          throw new BadRequestException(
+            "Kuryerning Telegram akkaunti bog'lanmagan. Avval botga /start qilib bog'lang.",
+          );
+        }
+      }
+    }
+
     const parsedDeliveryDate =
       dto.deliveryDate !== undefined && dto.deliveryDate !== ''
         ? new Date(dto.deliveryDate)
@@ -469,6 +646,18 @@ export class OrdersService {
       where: { id },
       data: {
         status: nextStatus,
+        courierId:
+          selectedCourier?.id ??
+          (nextStatus === OrderStatus.ON_WAY ? order.courierId ?? null : undefined),
+        courierName:
+          selectedCourier?.name ??
+          (nextStatus === OrderStatus.ON_WAY ? order.courierName ?? null : undefined),
+        courierPhone:
+          selectedCourier?.phone
+            ? this.formatPhoneNumber(selectedCourier.phone)
+            : nextStatus === OrderStatus.ON_WAY
+              ? order.courierPhone ?? null
+              : undefined,
         cancelReason:
           nextStatus === 'CANCELLED'
             ? dto.cancelReason?.trim()
@@ -479,7 +668,33 @@ export class OrdersService {
             : order.deliveryDate,
       },
       include: {
-        customer: true,
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            telegramChatId: true,
+          },
+        },
+        courier: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            telegramChatId: true,
+          },
+        },
+        items: {
+          include: {
+            carpet: {
+              select: {
+                name: true,
+                size: true,
+                material: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -492,11 +707,14 @@ export class OrdersService {
       case 'CANCELLED': statusText = 'bekor qilindi'; break;
     }
 
-    if (statusText || dto.explanation) {
-      const msg = dto.explanation 
-        ? dto.explanation 
-        : `Sizning #${formatOrderNumber(updatedOrder.id, updatedOrder.createdAt)} buyurtmangiz ${statusText}.${dto.deliveryDate ? ` Taxminiy kunda: ${dto.deliveryDate}` : ''}`;
-      
+    if (statusText || dto.explanation || nextStatus === OrderStatus.ON_WAY) {
+      const defaultStatusMessage = `Sizning #${formatOrderNumber(updatedOrder.id, updatedOrder.createdAt)} buyurtmangiz ${statusText}.${dto.deliveryDate ? ` Taxminiy kunda: ${dto.deliveryDate}` : ''}`;
+      const customerCourierMessage =
+        nextStatus === OrderStatus.ON_WAY && updatedOrder.courier
+          ? `Sizning #${formatOrderNumber(updatedOrder.id, updatedOrder.createdAt)} buyurtmangiz yo'lga chiqdi.\nKuryer: ${updatedOrder.courier.name}\nTelefon: ${this.formatPhoneNumber(updatedOrder.courier.phone)}\nBog'lanish uchun kuryerga qo'ng'iroq qilishingiz mumkin.`
+          : defaultStatusMessage;
+      const msg = dto.explanation ? dto.explanation : customerCourierMessage;
+
       void this.pushNotificationService.sendNotification(
         updatedOrder.customerId,
         dto.explanation ? 'Yangi xabar' : "Buyurtma holati o'zgardi",
@@ -504,15 +722,11 @@ export class OrdersService {
         `/orders/${updatedOrder.id}`,
       );
 
-      // Email notification
-      void this.mailService.sendOrderStatusEmail(
-        updatedOrder.customer.email,
-        updatedOrder.customerName,
-        formatOrderNumber(updatedOrder.id, updatedOrder.createdAt),
-        currentStatus,
-        dto.deliveryDate || (order.deliveryDate ? order.deliveryDate.toISOString().split('T')[0] : undefined),
-        dto.explanation,
-      );
+      await this.sendStatusTelegramToCustomer(updatedOrder, msg);
+
+      if (nextStatus === OrderStatus.ON_WAY && updatedOrder.courier) {
+        await this.sendOrderToCourier(updatedOrder);
+      }
     }
 
     return updatedOrder;
@@ -645,6 +859,8 @@ export class OrdersService {
         giftName: true,
         giftImage: true,
         giftPrice: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
 
@@ -791,19 +1007,10 @@ export class OrdersService {
       const carpet = carpetMap.get(carpetId);
       if (!carpet) continue;
 
-      const remainingStock = carpet.stock - requiredQty;
-
-      if (remainingStock <= 0) {
-        // Automatically delete the carpet when stock reaches zero
-        await tx.carpet.delete({
-          where: { id: carpetId },
-        });
-      } else {
-        await tx.carpet.update({
-          where: { id: carpetId },
-          data: { stock: { decrement: requiredQty } },
-        });
-      }
+      await tx.carpet.update({
+        where: { id: carpetId },
+        data: { stock: { decrement: requiredQty } },
+      });
 
       await tx.category.update({
         where: { id: carpet.categoryId },
@@ -858,6 +1065,17 @@ ${order.phone2 ? `<b>Tel 2:</b> ${this.formatPhoneNumber(order.phone2)}` : ''}
     const maxLat = 41.45;
     const minLng = 69.1;
     const maxLng = 69.45;
+
+    return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
+  }
+
+  private isInsideUzbekistan(lat: number, lng: number): boolean {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+
+    const minLat = 37.17;
+    const maxLat = 45.59;
+    const minLng = 55.99;
+    const maxLng = 73.15;
 
     return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng;
   }

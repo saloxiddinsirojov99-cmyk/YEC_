@@ -238,13 +238,10 @@
 
   @keyframes logo-3d-rtl {
     0% {
-      transform: perspective(1000px) rotateY(0deg) rotateX(0deg);
-    }
-    50% {
-      transform: perspective(1000px) rotateY(-180deg) rotateX(15deg) scale(1.05);
+      transform: perspective(1000px) rotateY(0deg);
     }
     100% {
-      transform: perspective(1000px) rotateY(-360deg) rotateX(0deg);
+      transform: perspective(1000px) rotateY(-360deg);
     }
   }
 

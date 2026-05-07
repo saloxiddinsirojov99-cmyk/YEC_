@@ -2,9 +2,15 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { api, formatPrice, getErrorMessage } from '@/services/api';
-import { getCategories, getCollectionM2Price } from '@/services/carpet.service';
+import { api, formatPrice, getErrorMessage, getImageUrl } from '@/services/api';
+import {
+  getCarpetById,
+  getCategories,
+  getCollectionMaterial,
+  getCollectionM2Price,
+} from '@/services/carpet.service';
 import type { Category } from '@/types/carpet';
+import { getCollectionImageFromDesignCode } from '@/utils/carpet-image';
 import { parseAreaFromSize } from '@/utils/size';
 
 const normalizeCollection = (value: string) =>
@@ -16,6 +22,8 @@ const normalizeCollection = (value: string) =>
 
 const PRAYER_MAT_CATEGORY_NAME = 'Joynamoz';
 const OVAL_CARPET_CATEGORY_NAME = 'Ovalni gilamlar';
+const PRAYER_MAT_CATEGORY_KEYWORD = 'joynamoz';
+const OVAL_CARPET_CATEGORY_KEYWORD = 'oval';
 const PRAYER_MAT_SIZES = [
   { label: '0.5 x 1.25 m', value: '0.5x1.25' },
   { label: '0.75 x 1.25 m', value: '0.75x1.25' },
@@ -58,7 +66,7 @@ const AUTO_MANAGED_MATERIALS = [
 
 const resolveAutoMaterialByName = (rawName: string, isPrayerMat: boolean) => {
   const normalizedName = rawName.toLowerCase().trim();
-  if (!normalizedName) return isPrayerMat ? 'Baxmal (Velvet)' : '';
+  if (!normalizedName) return '';
 
   const fromCommonRules = AUTO_MATERIAL_RULES.find((rule) =>
     rule.keywords.some((keyword) => normalizedName.includes(keyword)),
@@ -70,7 +78,7 @@ const resolveAutoMaterialByName = (rawName: string, isPrayerMat: boolean) => {
   const fromPrayerRules = PRAYER_MAT_MATERIAL_RULES.find((rule) =>
     rule.keywords.some((keyword) => normalizedName.includes(keyword)),
   );
-  return fromPrayerRules?.material ?? 'Baxmal (Velvet)';
+  return fromPrayerRules?.material ?? '';
 };
 
 const normalizeNonNegativeNumberInput = (rawValue: string) => {
@@ -81,10 +89,18 @@ const normalizeNonNegativeNumberInput = (rawValue: string) => {
   return String(Math.max(0, parsed));
 };
 
+const isPrayerCategoryName = (rawName?: string) =>
+  (rawName ?? '').toLowerCase().includes(PRAYER_MAT_CATEGORY_KEYWORD);
+
+const isOvalCategoryName = (rawName?: string) =>
+  (rawName ?? '').toLowerCase().includes(OVAL_CARPET_CATEGORY_KEYWORD);
+
 export default function CreateAdminCarpetPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const getParam = (key: string) => searchParams?.get(key) ?? '';
+  const editId = getParam('id');
+  const isEditMode = Boolean(editId);
   const forcedPrayerMat = getParam('type') === 'joynamoz';
   const forcedOvalCarpet = getParam('type') === 'oval';
   const initialType =
@@ -104,8 +120,10 @@ export default function CreateAdminCarpetPage() {
   const [stock, setStock] = useState(initialStock);
   const [size, setSize] = useState(initialSize);
   const [material, setMaterial] = useState(initialMaterial);
+  const [materialAutoManaged, setMaterialAutoManaged] = useState(true);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
+  const [existingImageUrls, setExistingImageUrls] = useState<string[]>([]);
   const [description, setDescription] = useState(initialDescription);
   const [designCode, setDesignCode] = useState(''); // Gul kodi
   const [categoryId, setCategoryId] = useState(initialCategoryId);
@@ -114,9 +132,12 @@ export default function CreateAdminCarpetPage() {
   const [m2AutoLocked, setM2AutoLocked] = useState(false);
   const [m2LookupNameKey, setM2LookupNameKey] = useState('');
   const [m2LookupMessage, setM2LookupMessage] = useState('');
+  const [materialLookupLoading, setMaterialLookupLoading] = useState(false);
+  const [materialLookupMessage, setMaterialLookupMessage] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingEditData, setLoadingEditData] = useState(false);
   const [creatingForcedCategory, setCreatingForcedCategory] = useState(false);
   const isPrayerMat = productType === 'joynamoz';
   const isOvalCarpet = productType === 'oval';
@@ -125,6 +146,25 @@ export default function CreateAdminCarpetPage() {
     : isOvalCarpet
       ? OVAL_CARPET_CATEGORY_NAME
       : '';
+  const selectedCategory = categories.find((category) => category.id === categoryId);
+  const isForcedCategoryReady = !forcedCategoryName
+    ? true
+    : isPrayerMat
+      ? isPrayerCategoryName(selectedCategory?.name)
+      : isOvalCarpet
+        ? isOvalCategoryName(selectedCategory?.name)
+        : true;
+  const submitBlockedByCategory = creatingForcedCategory || !isForcedCategoryReady;
+  const previewUrls = useMemo(
+    () => [...existingImageUrls, ...previews],
+    [existingImageUrls, previews],
+  );
+  const autoDesignImage = useMemo(() => {
+    const finalName = name.trim();
+    const finalDesignCode = designCode.trim();
+    if (!finalName || !finalDesignCode) return null;
+    return getCollectionImageFromDesignCode(finalName, finalDesignCode);
+  }, [name, designCode]);
 
   useEffect(() => {
     if (forcedPrayerMat && productType !== 'joynamoz') {
@@ -147,6 +187,87 @@ export default function CreateAdminCarpetPage() {
   }, []);
 
   useEffect(() => {
+    if (!editId) return;
+
+    let cancelled = false;
+    const loadForEdit = async () => {
+      try {
+        setLoadingEditData(true);
+        setError('');
+
+        const existing = await getCarpetById(editId);
+        if (cancelled) return;
+
+        const normalizedCategoryName = existing.category?.name?.toLowerCase() ?? '';
+        const nextType: 'carpet' | 'joynamoz' | 'oval' = isPrayerCategoryName(
+          normalizedCategoryName,
+        )
+          ? 'joynamoz'
+          : isOvalCategoryName(normalizedCategoryName)
+            ? 'oval'
+            : 'carpet';
+
+        setProductType(nextType);
+        setName(existing.name ?? '');
+        setSize(existing.size ?? '');
+        setMaterial(existing.material ?? '');
+        setMaterialAutoManaged(
+          AUTO_MANAGED_MATERIALS.includes((existing.material ?? '').trim()),
+        );
+        setCategoryId(existing.categoryId ?? '');
+        setDescription(existing.description ?? '');
+        setDesignCode(existing.designCode ?? '');
+        setStock(String(Math.max(1, Number(existing.stock) || 1)));
+        setExistingImageUrls((existing.images ?? []).filter(Boolean));
+        setImageFiles([]);
+        setPreviews([]);
+
+        const parsedPrice = Number(existing.price);
+        if (nextType === 'joynamoz') {
+          setPricePerM2(
+            Number.isFinite(parsedPrice) && parsedPrice > 0
+              ? String(Math.round(parsedPrice))
+              : '',
+          );
+        } else {
+          const parsedArea = parseAreaFromSize(existing.size ?? '');
+          if (
+            Number.isFinite(parsedPrice) &&
+            parsedPrice > 0 &&
+            parsedArea &&
+            parsedArea > 0
+          ) {
+            const computedPerM2 = Math.round((parsedPrice / parsedArea) * 100) / 100;
+            setPricePerM2(String(computedPerM2));
+          } else {
+            setPricePerM2('');
+          }
+        }
+
+        setM2LookupDone(true);
+        setM2AutoLocked(false);
+        setM2LookupNameKey(normalizeCollection(existing.name ?? ''));
+        setM2LookupMessage(
+          "Tahrirlash rejimi: narxni qo'lda o'zgartirishingiz mumkin.",
+        );
+      } catch (err) {
+        if (!cancelled) {
+          setError(getErrorMessage(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingEditData(false);
+        }
+      }
+    };
+
+    void loadForEdit();
+    return () => {
+      cancelled = true;
+    };
+  }, [editId]);
+
+  useEffect(() => {
     if (!isPrayerMat) return;
     if (!PRAYER_MAT_SIZES.some((option) => option.value === size)) {
       setSize(PRAYER_MAT_SIZES[0].value);
@@ -157,8 +278,12 @@ export default function CreateAdminCarpetPage() {
     if (!forcedCategoryName) return;
     if (categories.length === 0) return;
 
-    const existing = categories.find(
-      (category) => category.name.toLowerCase() === forcedCategoryName.toLowerCase(),
+    const existing = categories.find((category) =>
+      isPrayerMat
+        ? isPrayerCategoryName(category.name)
+        : isOvalCarpet
+          ? isOvalCategoryName(category.name)
+          : false,
     );
 
     if (existing) {
@@ -178,12 +303,14 @@ export default function CreateAdminCarpetPage() {
         setCategoryId(data.id);
       } catch (err) {
         const message = getErrorMessage(err);
-        if (message.includes('Kategoriya allaqachon mavjud')) {
-          const data = await getCategories();
+        const statusCode = (err as any)?.response?.status;
+        if (statusCode === 409 || message.includes('Kategoriya allaqachon mavjud')) {
+          const { data } = await api.get<Category[]>('/categories');
           setCategories(data);
           const found = data.find(
             (category) =>
-              category.name.toLowerCase() === forcedCategoryName.toLowerCase(),
+              (isPrayerMat && isPrayerCategoryName(category.name)) ||
+              (isOvalCarpet && isOvalCategoryName(category.name)),
           );
           if (found) setCategoryId(found.id);
         } else {
@@ -204,7 +331,7 @@ export default function CreateAdminCarpetPage() {
     if (!selectedCategory) return;
 
     const normalizedName = selectedCategory.name.toLowerCase();
-    if (normalizedName.includes(PRAYER_MAT_CATEGORY_NAME.toLowerCase()) || normalizedName.includes('oval')) {
+    if (isPrayerCategoryName(normalizedName) || isOvalCategoryName(normalizedName)) {
       setCategoryId('');
     }
   }, [isPrayerMat, isOvalCarpet, categories, categoryId]);
@@ -295,20 +422,69 @@ export default function CreateAdminCarpetPage() {
     }
   }, [isPrayerMat, isOvalCarpet]);
 
-  // Auto-fill material based on name (including joynamoz)
+  // Auto-fill material by collection first, then fallback to keyword rules.
   useEffect(() => {
-    if (!name && !isPrayerMat) return;
-
-    const autoMaterial = resolveAutoMaterialByName(name, isPrayerMat);
-    if (!autoMaterial) return;
-
-    if (
+    const canAutoOverwrite =
+      materialAutoManaged ||
       !material ||
-      AUTO_MANAGED_MATERIALS.includes(material.trim())
-    ) {
-      setMaterial(autoMaterial);
+      AUTO_MANAGED_MATERIALS.includes(material.trim());
+
+    if (!canAutoOverwrite) {
+      setMaterialLookupLoading(false);
+      return;
     }
-  }, [name, isPrayerMat, material]);
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      const trimmedName = name.trim();
+      if (!trimmedName) {
+        if (!cancelled) {
+          setMaterial('');
+          setMaterialLookupMessage('');
+          setMaterialLookupLoading(false);
+        }
+        return;
+      }
+
+      try {
+        setMaterialLookupLoading(true);
+        const lookup = await getCollectionMaterial(trimmedName);
+        if (cancelled) return;
+
+        if (lookup.found && lookup.material) {
+          setMaterial(lookup.material);
+          setMaterialAutoManaged(true);
+          setMaterialLookupMessage(
+            `"${lookup.collectionName}" bo'yicha material topildi: ${lookup.material}.`,
+          );
+          setMaterialLookupLoading(false);
+          return;
+        }
+      } catch {
+        // fallback to local keyword rules below
+      }
+
+      if (cancelled) return;
+      const autoMaterial = resolveAutoMaterialByName(trimmedName, isPrayerMat);
+      if (autoMaterial) {
+        setMaterial(autoMaterial);
+        setMaterialAutoManaged(true);
+        setMaterialLookupMessage(
+          `Nom bo'yicha avtomatik material tanlandi: ${autoMaterial}.`,
+        );
+      } else {
+        setMaterialLookupMessage(
+          "Nom bo'yicha material aniqlanmadi. Materialni qo'lda kiriting.",
+        );
+      }
+      setMaterialLookupLoading(false);
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [name, isPrayerMat, material, materialAutoManaged]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -317,50 +493,62 @@ export default function CreateAdminCarpetPage() {
       setError('');
       setSuccess('');
 
-      let effectiveTotalPrice = totalPrice;
-      let isAutoLockedNow = m2AutoLocked;
-
-      if (!isPrayerMat) {
-        const currentLookupKey = normalizeCollection(name.trim());
-        const needsLookup =
-          !m2LookupDone || !currentLookupKey || currentLookupKey !== m2LookupNameKey;
-
-        if (needsLookup) {
-          const lookupResult = await lookupM2ByName();
-          if (!lookupResult.ok) {
-            return;
-          }
-          isAutoLockedNow = lookupResult.autoLocked;
-          if (lookupResult.autoLocked && area && lookupResult.resolvedM2Price) {
-            effectiveTotalPrice = Math.round(area * lookupResult.resolvedM2Price);
-          }
-        }
-
-        if (!isAutoLockedNow && !pricePerM2.trim()) {
-          setError("Bu nom bazada topilmadi. m2 narxini qo'lda kiriting.");
+      let effectiveTotalPrice: number | null = totalPrice;
+      if (isPrayerMat) {
+        const fullPrice = Number(pricePerM2.replace(',', '.'));
+        if (!Number.isFinite(fullPrice) || fullPrice <= 0) {
+          setError("Narxni to'g'ri kiriting.");
           return;
         }
+        effectiveTotalPrice = Math.round(fullPrice);
+      } else {
+        const perM2Price = Number(pricePerM2.replace(',', '.'));
+        if (!Number.isFinite(perM2Price) || perM2Price <= 0) {
+          setError("m2 narxini to'g'ri kiriting.");
+          return;
+        }
+        if (!area || area <= 0) {
+          setError("O'lcham bo'yicha maydon hisoblanmadi. O'lchamni tekshiring.");
+          return;
+        }
+        effectiveTotalPrice = Math.round(area * perM2Price);
       }
-      
-      const imageUrls: string[] = [];
 
-      if (imageFiles.length === 0) {
-        setError(
-          isPrayerMat
-            ? "Joynamoz uchun rasm yuklang."
-            : isOvalCarpet
-              ? "Oval gilam uchun rasmni qo'lda yuklang."
-              : "Gilam uchun rasm yuklang.",
-        );
-        return;
-      }
+      const finalName = name.trim();
+      const finalDesignCode = designCode.trim();
+      const autoMappedImage = getCollectionImageFromDesignCode(
+        finalName,
+        finalDesignCode || undefined,
+      );
+
+      const uploadedImageUrls: string[] = [];
       for (const file of imageFiles) {
         const formData = new FormData();
         formData.append('file', file);
         const { data } = await api.post('/upload/image', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
-        imageUrls.push(data.url);
+        uploadedImageUrls.push(data.url);
+      }
+
+      const finalImageUrls = Array.from(
+        new Set(
+          [
+            ...(autoMappedImage ? [autoMappedImage] : []),
+            ...existingImageUrls,
+            ...uploadedImageUrls,
+          ].filter(Boolean),
+        ),
+      );
+      if (finalImageUrls.length === 0) {
+        setError(
+          isPrayerMat
+            ? "Joynamoz uchun kamida bitta rasm bo'lishi kerak."
+            : isOvalCarpet
+              ? "Oval gilam uchun kamida bitta rasm bo'lishi kerak."
+              : "Gilam uchun kamida bitta rasm bo'lishi kerak.",
+        );
+        return;
       }
 
       if (!Number.isFinite(Number(effectiveTotalPrice)) || Number(effectiveTotalPrice) <= 0) {
@@ -379,51 +567,93 @@ export default function CreateAdminCarpetPage() {
         return;
       }
 
+      const selectedCategory = categories.find((category) => category.id === categoryId);
+      const selectedCategoryName = selectedCategory?.name.toLowerCase() ?? '';
+      if (!selectedCategoryName) {
+        setError("Kategoriya topilmadi. Sahifani yangilang.");
+        return;
+      }
+
+      if (isOvalCarpet && !isOvalCategoryName(selectedCategoryName)) {
+        setError("Oval turi uchun 'Ovalni gilamlar' kategoriyasi tayyor bo'lishi kerak.");
+        return;
+      }
+
+      if (isPrayerMat && !isPrayerCategoryName(selectedCategoryName)) {
+        setError("Joynamoz turi uchun 'Joynamoz' kategoriyasi tanlanishi kerak.");
+        return;
+      }
+
       if (!isOvalCarpet) {
-        const selectedCategory = categories.find((category) => category.id === categoryId);
-        if (selectedCategory?.name.toLowerCase().includes('oval')) {
+        if (isOvalCategoryName(selectedCategoryName)) {
           setError("Oval turiga faqat 'Oval gilam' mahsulot turi orqali qo'shing.");
           return;
         }
       }
 
-      const finalName = name.trim();
-      const finalDesignCode = designCode.trim();
-      if (isOvalCarpet && !finalDesignCode) {
-        setError("Oval gilam uchun gul kodi majburiy.");
-        return;
-      }
-
       const finalDescription = description.trim();
+      const payload = {
+        name: finalName,
+        price: Number(effectiveTotalPrice),
+        stock: Math.round(parsedStock),
+        size,
+        material,
+        description: finalDescription || undefined,
+        designCode: finalDesignCode || undefined,
+        categoryId,
+        images: finalImageUrls,
+      };
 
-        await api.post('/carpets', {
-          name: finalName,
-          price: Number(effectiveTotalPrice),
-          stock: Math.round(parsedStock),
-          size,
-          material,
-          description: finalDescription || undefined,
-          designCode: finalDesignCode || undefined,
-          categoryId,
-          images: imageUrls,
-        });
+      if (isEditMode && editId) {
+        await api.patch(`/carpets/${editId}`, payload);
+        setSuccess("Mahsulot muvaffaqiyatli tahrirlandi!");
+      } else {
+        const { data: createdCarpet } = await api.post<{ id?: string }>('/carpets', payload);
+        const createdId =
+          createdCarpet && typeof createdCarpet.id === 'string'
+            ? createdCarpet.id
+            : '';
+        if (!createdId) {
+          throw new Error(
+            "Server mahsulot ma'lumotini to'g'ri qaytarmadi. Iltimos, ro'yxatdan qidirib tekshiring.",
+          );
+        }
 
-      setSuccess(
-        isPrayerMat
+        const confirmedCarpet = await getCarpetById(createdId);
+        const confirmedCategoryName =
+          confirmedCarpet.category?.name?.toLowerCase?.() ?? '';
+
+        if (isOvalCarpet && !isOvalCategoryName(confirmedCategoryName)) {
+          throw new Error("Mahsulot oval turida saqlanmadi. Qaytadan urinib ko'ring.");
+        }
+
+        if (
+          isPrayerMat &&
+          !isPrayerCategoryName(confirmedCategoryName)
+        ) {
+          throw new Error("Mahsulot joynamoz turida saqlanmadi. Qaytadan urinib ko'ring.");
+        }
+
+        const successMessage = isPrayerMat
           ? "Joynamoz muvaffaqiyatli qo'shildi!"
           : isOvalCarpet
             ? "Oval gilam muvaffaqiyatli qo'shildi!"
-            : "Gilam muvaffaqiyatli qo'shildi!",
-      );
+            : "Gilam muvaffaqiyatli qo'shildi!";
+        setSuccess(successMessage);
+      }
+
       setTimeout(() => {
         router.push('/admin/carpets');
       }, 1500);
+
     } catch (err: any) {
-      console.error('Carpet creation error:', err);
+      console.error('Carpet save error:', err);
       // If backend provided a specific message in the standard Nest error response, use it.
       const backendMessage = err.response?.data?.message;
       if (backendMessage) {
         setError(Array.isArray(backendMessage) ? backendMessage[0] : backendMessage);
+      } else if (typeof err?.message === 'string' && err.message.trim()) {
+        setError(err.message.trim());
       } else {
         setError(getErrorMessage(err));
       }
@@ -432,7 +662,7 @@ export default function CreateAdminCarpetPage() {
     }
   };
 
-  if (loading && categories.length === 0) {
+  if ((loading || loadingEditData) && categories.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -444,11 +674,13 @@ export default function CreateAdminCarpetPage() {
     <div className="section-shell py-8 relative">
       <div className="flex items-center justify-between">
          <h1 className="font-serif text-4xl text-ink">
-           {isPrayerMat
-             ? "Joynamoz qo'shish"
-             : isOvalCarpet
-               ? "Oval gilam qo'shish"
-               : "Gilam qo'shish"}
+           {isEditMode
+             ? 'Mahsulotni tahrirlash'
+             : isPrayerMat
+               ? "Joynamoz qo'shish"
+               : isOvalCarpet
+                 ? "Oval gilam qo'shish"
+                 : "Gilam qo'shish"}
          </h1>
       </div>
 
@@ -512,12 +744,11 @@ export default function CreateAdminCarpetPage() {
           className="input-field"
           placeholder={
             isOvalCarpet
-              ? "Gul kodi (majburiy, masalan: DC-001)"
+              ? "Gul kodi (ixtiyoriy, masalan: DC-001)"
               : "Gul kodi (masalan: DC-001)"
           }
           value={designCode}
           onChange={(e) => setDesignCode(e.target.value)}
-          required={isOvalCarpet}
         />
         <input
           className={`input-field ${!isPrayerMat && m2AutoLocked ? 'bg-sand/40' : ''}`}
@@ -625,6 +856,19 @@ export default function CreateAdminCarpetPage() {
           onChange={(e) => setMaterial(e.target.value)}
           required
         />
+        <div
+          className={`text-xs md:col-span-2 ${
+            materialLookupLoading
+              ? 'text-primary'
+              : materialLookupMessage
+                ? 'text-ink/65'
+                : 'text-ink/45'
+          }`}
+        >
+          {materialLookupLoading
+            ? "Nom bo'yicha material tekshirilmoqda..."
+            : materialLookupMessage || "Materialni qo'lda ham kiritishingiz mumkin."}
+        </div>
         {(isPrayerMat || isOvalCarpet) && (
           <div className="md:col-span-2 text-sm text-ink/60">
             {isPrayerMat
@@ -635,18 +879,35 @@ export default function CreateAdminCarpetPage() {
 
         <div className="md:col-span-2">
           <label className="block text-sm text-ink/70 mb-1">Rasm yuklash (bir nechta tanlash mumkin)</label>
+          {isEditMode && existingImageUrls.length > 0 ? (
+            <p className="mb-2 text-xs text-ink/55">
+              Mavjud rasmlar saqlanadi. Keraksizini ustiga bosib o&apos;chiring.
+            </p>
+          ) : null}
           <div className="flex flex-wrap gap-4 mb-4">
-            {previews.map((url, idx) => (
-              <div key={url} className="relative group w-24 h-24 rounded-lg overflow-hidden border border-black/10">
-                <img src={url} className="w-full h-full object-cover" alt="Preview" />
+            {previewUrls.map((url, idx) => (
+              <div key={`${url}-${idx}`} className="relative group w-24 h-24 rounded-lg overflow-hidden border border-black/10">
+                <img
+                  src={url.startsWith('blob:') ? url : getImageUrl(url) || url}
+                  className="w-full h-full object-cover"
+                  alt="Preview"
+                />
                 <button
                   type="button"
                   onClick={() => {
+                    if (idx < existingImageUrls.length) {
+                      const nextExisting = [...existingImageUrls];
+                      nextExisting.splice(idx, 1);
+                      setExistingImageUrls(nextExisting);
+                      return;
+                    }
+                    const localIndex = idx - existingImageUrls.length;
+                    if (localIndex < 0) return;
                     const newFiles = [...imageFiles];
-                    newFiles.splice(idx, 1);
+                    newFiles.splice(localIndex, 1);
                     setImageFiles(newFiles);
                     const newPreviews = [...previews];
-                    newPreviews.splice(idx, 1);
+                    newPreviews.splice(localIndex, 1);
                     setPreviews(newPreviews);
                   }}
                   className="absolute inset-0 bg-red-500/80 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
@@ -682,13 +943,13 @@ export default function CreateAdminCarpetPage() {
           onChange={(e) => setDescription(e.target.value)}
           rows={4}
         />
-        {isPrayerMat ? (
+        {isPrayerMat || isOvalCarpet ? (
           <div className="md:col-span-2">
             <label className="block text-sm text-ink/70 mb-1">Kategoriya</label>
             <div className="flex flex-col gap-2">
               <input
                 className="input-field bg-sand/40"
-                value={forcedCategoryName}
+                value={selectedCategory?.name || forcedCategoryName}
                 readOnly
               />
               {creatingForcedCategory ? (
@@ -696,7 +957,7 @@ export default function CreateAdminCarpetPage() {
               ) : null}
             </div>
           </div>
-        ) : isOvalCarpet ? null : (
+        ) : (
           <select
             className="input-field md:col-span-2"
             value={categoryId}
@@ -708,8 +969,8 @@ export default function CreateAdminCarpetPage() {
               .filter((category) => {
                 const normalizedName = category.name.toLowerCase();
                 return (
-                  !normalizedName.includes(PRAYER_MAT_CATEGORY_NAME.toLowerCase()) &&
-                  !normalizedName.includes('oval')
+                  !isPrayerCategoryName(normalizedName) &&
+                  !isOvalCategoryName(normalizedName)
                 );
               })
               .map((category) => (
@@ -720,8 +981,18 @@ export default function CreateAdminCarpetPage() {
           </select>
         )}
 
-        <button type="submit" className="btn-primary md:col-span-2" disabled={loading}>
-          {loading ? 'Saqlanmoqda...' : 'Qo\'shish'}
+        <button
+          type="submit"
+          className="btn-primary md:col-span-2"
+          disabled={loading || submitBlockedByCategory}
+        >
+          {loading
+            ? 'Saqlanmoqda...'
+            : submitBlockedByCategory
+              ? 'Kategoriya tayyorlanmoqda...'
+              : isEditMode
+                ? 'Saqlash'
+                : 'Qo\'shish'}
         </button>
       </form>
 

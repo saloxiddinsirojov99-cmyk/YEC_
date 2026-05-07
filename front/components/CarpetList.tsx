@@ -28,7 +28,7 @@ function SkeletonCard() {
 export default function CarpetList({ carpets, loading = false, emptyText }: Props) {
   if (loading) {
     return (
-      <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4">
         {Array.from({ length: 6 }).map((_, index) => (
           <SkeletonCard key={index} />
         ))}
@@ -45,7 +45,7 @@ export default function CarpetList({ carpets, loading = false, emptyText }: Prop
   }
 
   return (
-    <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3">
+    <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4">
       {carpets.map((carpet) => (
         <CarpetCard key={carpet.id} carpet={carpet} />
       ))}

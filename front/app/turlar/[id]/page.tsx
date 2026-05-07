@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import CarpetList from '@/components/CarpetList';
 import Pagination from '@/components/Pagination';
 import { getCarpets, getCategories } from '@/services/carpet.service';
@@ -9,7 +9,7 @@ import { getErrorMessage } from '@/services/api';
 import type { Carpet, Category } from '@/types/carpet';
 
 const DESKTOP_LIMIT = 30;
-const MOBILE_LIMIT = 5;
+const MOBILE_LIMIT = 10;
 const MOBILE_MEDIA_QUERY = '(max-width: 767px)';
 
 export default function TurDetailPage() {
@@ -27,6 +27,7 @@ export default function TurDetailPage() {
   const [error, setError] = useState('');
   const [limit, setLimit] = useState(DESKTOP_LIMIT);
   const [limitReady, setLimitReady] = useState(false);
+  const suppressAutoSearchRef = useRef(true);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) {
@@ -66,7 +67,6 @@ export default function TurDetailPage() {
         page: targetPage,
         limit,
         categoryId,
-        showAll: true,
         size: sizeValue ? sizeValue : undefined,
       });
 
@@ -84,6 +84,7 @@ export default function TurDetailPage() {
   useEffect(() => {
     if (!categoryId || !limitReady) return;
 
+    suppressAutoSearchRef.current = true;
     const load = async () => {
       try {
         setLoading(true);
@@ -91,7 +92,7 @@ export default function TurDetailPage() {
         setFilters({ size: '' });
         setAppliedFilters({ size: '' });
         const [carpetRes, categoriesRes] = await Promise.all([
-          getCarpets({ page: 1, limit, categoryId, showAll: true }),
+          getCarpets({ page: 1, limit, categoryId }),
           getCategories(),
         ]);
 
@@ -104,11 +105,26 @@ export default function TurDetailPage() {
         setError(getErrorMessage(err));
       } finally {
         setLoading(false);
+        suppressAutoSearchRef.current = false;
       }
     };
 
     void load();
   }, [categoryId, limit, limitReady]);
+
+  useEffect(() => {
+    if (!categoryId || !limitReady || suppressAutoSearchRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      const nextFilters = { ...filters };
+      setAppliedFilters(nextFilters);
+      void loadCarpets(nextFilters, 1, false);
+    }, 450);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [filters, categoryId, limitReady]);
 
   const resultText = loading
     ? 'Yuklanmoqda...'
@@ -130,9 +146,6 @@ export default function TurDetailPage() {
         className="panel grid grid-cols-1 gap-4 p-4 md:grid-cols-6"
         onSubmit={(event) => {
           event.preventDefault();
-          const nextFilters = { ...filters };
-          setAppliedFilters(nextFilters);
-          void loadCarpets(nextFilters, 1, false);
         }}
       >
         <input
@@ -143,16 +156,12 @@ export default function TurDetailPage() {
           className="input-field md:col-span-5"
         />
         <div className="flex gap-3 md:col-span-1">
-          <button type="submit" className="btn-primary flex-1 py-3 text-xs uppercase tracking-widest">
-            Qidirish
-          </button>
           <button
             type="button"
             onClick={() => {
               const cleared = { size: '' };
               setFilters(cleared);
               setAppliedFilters(cleared);
-              void loadCarpets(cleared, 1, false);
             }}
             className="btn-secondary flex-1 py-3 text-xs uppercase tracking-widest"
           >

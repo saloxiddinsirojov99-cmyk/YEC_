@@ -12,11 +12,13 @@ export default function AdminCarpetsPage() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sizeInput, setSizeInput] = useState('');
   const [kindFilter, setKindFilter] = useState('');
+  const [debouncedSearchInput, setDebouncedSearchInput] = useState('');
+  const [debouncedSizeInput, setDebouncedSizeInput] = useState('');
+  const [debouncedKindFilter, setDebouncedKindFilter] = useState('');
   const limit = 30;
 
   const load = useCallback(async (p: number, q: string, s: string, k: string) => {
@@ -39,26 +41,36 @@ export default function AdminCarpetsPage() {
   }, []);
 
   useEffect(() => {
-    void load(page, search, sizeInput, kindFilter);
-  }, [page, search, sizeInput, kindFilter, load]);
+    const timer = window.setTimeout(() => {
+      setDebouncedSearchInput(searchInput);
+      setDebouncedSizeInput(sizeInput);
+      setDebouncedKindFilter(kindFilter);
+      setPage(1);
+    }, 450);
 
-  const handleSearch = () => {
-    setSearch(searchInput);
-    setPage(1);
-  };
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [searchInput, sizeInput, kindFilter]);
+
+  useEffect(() => {
+    void load(page, debouncedSearchInput, debouncedSizeInput, debouncedKindFilter);
+  }, [page, debouncedSearchInput, debouncedSizeInput, debouncedKindFilter, load]);
 
   const handleClearSearch = () => {
     setSearchInput('');
-    setSearch('');
     setSizeInput('');
     setKindFilter('');
+    setDebouncedSearchInput('');
+    setDebouncedSizeInput('');
+    setDebouncedKindFilter('');
     setPage(1);
   };
 
   const remove = async (id: string) => {
     try {
       await api.delete(`/carpets/${id}`);
-      await load(page, search, sizeInput, kindFilter);
+      await load(page, debouncedSearchInput, debouncedSizeInput, debouncedKindFilter);
     } catch (err) {
       setError(getErrorMessage(err));
     }
@@ -117,7 +129,6 @@ export default function AdminCarpetsPage() {
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           placeholder="Nomi bo'yicha..."
           className="rounded-xl border border-sand bg-white px-4 py-2.5 text-sm text-ink outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
         />
@@ -125,7 +136,6 @@ export default function AdminCarpetsPage() {
           type="text"
           value={sizeInput}
           onChange={(e) => setSizeInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           placeholder="O'lchami bo'yicha..."
           className="rounded-xl border border-sand bg-white px-4 py-2.5 text-sm text-ink outline-none transition-colors focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
         />
@@ -139,18 +149,11 @@ export default function AdminCarpetsPage() {
           <option value="prayer">Faqat joynamozlar</option>
         </select>
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={handleSearch}
-            className="flex-1 rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-primary/90"
-          >
-            Qidirish
-          </button>
-          {(search || sizeInput || kindFilter) && (
+          {(searchInput || sizeInput || kindFilter) && (
             <button
               type="button"
               onClick={handleClearSearch}
-              className="rounded-xl border border-sand px-4 py-2.5 text-sm font-medium text-ink/60 transition-colors hover:bg-sand/50"
+              className="btn-secondary w-full px-4 py-2.5 text-sm font-medium md:w-auto"
             >
               Tozalash
             </button>
@@ -168,7 +171,7 @@ export default function AdminCarpetsPage() {
         <div className="flex items-end gap-3 border-b border-sand pb-4">
           <h2 className="font-serif text-2xl text-ink">Mavjud mahsulotlar</h2>
           <span className="text-sm font-medium text-ink/40">
-            Jami: {total} ta {search && `("${search}" bo'yicha)`}
+            Jami: {total} ta {debouncedSearchInput && `("${debouncedSearchInput}" bo'yicha)`}
           </span>
         </div>
 

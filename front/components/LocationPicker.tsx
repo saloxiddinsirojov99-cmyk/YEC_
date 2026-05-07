@@ -8,6 +8,7 @@ export type LocationValue = {
   lng: number;
   address: string;
   isInTashkent: boolean;
+  isInUzbekistan: boolean;
 };
 
 const TASHKENT_CENTER = { lat: 41.311081, lng: 69.279723 };
@@ -15,6 +16,9 @@ const TASHKENT_CENTER = { lat: 41.311081, lng: 69.279723 };
 // Expanded bounds for Tashkent
 const isInBounds = (lat: number, lng: number) =>
   lat >= 41.1 && lat <= 41.45 && lng >= 69.1 && lng <= 69.45;
+
+const isInUzbekistanBounds = (lat: number, lng: number) =>
+  lat >= 37.17 && lat <= 45.59 && lng >= 55.99 && lng <= 73.15;
 
 const isAddressTashkent = (address: Record<string, unknown>) => {
   const pick = (key: string) => {
@@ -35,6 +39,22 @@ const isAddressTashkent = (address: Record<string, unknown>) => {
     .join(' ');
 
   return fields.includes('tashkent') || fields.includes('toshkent');
+};
+
+const isAddressUzbekistan = (address: Record<string, unknown>) => {
+  const pick = (key: string) => {
+    const value = address[key];
+    return typeof value === 'string' ? value.toLowerCase() : '';
+  };
+
+  const countryCode = pick('country_code');
+  const country = pick('country');
+  const state = pick('state');
+
+  if (countryCode) return countryCode === 'uz';
+
+  const joined = [country, state].filter(Boolean).join(' ');
+  return joined.includes('uzbekistan') || joined.includes("o'zbekiston");
 };
 
 type Props = {
@@ -60,15 +80,62 @@ export default function LocationPicker({
   const [message, setMessage] = useState('Manzilni xaritadan tanlang.');
   const [isFullScreen, setIsFullScreen] = useState(false);
 
+  // Stability Refs to avoid stale closures in Leaflet events
+  const onChangeRef = useRef(onChange);
+  const loadingRef = useRef(loading);
+  const readyRef = useRef(ready);
+
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+  useEffect(() => { readyRef.current = ready; }, [ready]);
+
   const applyMarker = (lat: number, lng: number, map: any) => {
     const L = (window as any).L;
     if (!L || !map) return null;
 
+    const customIcon = L.divIcon({
+      className: 'custom-yandex-marker',
+      html: `
+        <div class="relative flex items-center justify-center">
+          <div class="absolute w-10 h-10 bg-white rounded-full shadow-lg border border-white/50 flex items-center justify-center">
+             <div class="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+             </div>
+          </div>
+          <div class="absolute -bottom-1 w-2 h-2 bg-red-500 rotate-45 transform"></div>
+        </div>
+      `,
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
+    });
+
     if (markerRef.current) {
-      markerRef.current.setLatLng([lat, lng]);
+      if (markerRef.current._map !== map) {
+        markerRef.current.remove();
+        markerRef.current = L.marker([lat, lng], { icon: customIcon }).addTo(map);
+      } else {
+        markerRef.current.setLatLng([lat, lng]);
+      }
     } else {
-      markerRef.current = L.marker([lat, lng]).addTo(map);
+      markerRef.current = L.marker([lat, lng], { icon: customIcon }).addTo(map);
     }
+
+    // Refresh tooltip on every move
+    markerRef.current.unbindTooltip();
+    markerRef.current.bindTooltip(`
+      <div class="flex items-center gap-2 p-1">
+        <span class="font-bold text-[11px] whitespace-nowrap">Sizning manzilingiz</span>
+      </div>
+    `, {
+      permanent: true,
+      direction: 'right',
+      className: 'yandex-label-tooltip',
+      offset: [24, 0]
+    });
+
     return markerRef.current;
   };
 
@@ -86,7 +153,7 @@ export default function LocationPicker({
     return response.json();
   };
 
-  const selectLocation = async (lat: number, lng: number, silent = false) => {
+  const selectLocation = async (lat: number, lng: number, targetMap: any, silent = false) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
     if (!silent) {
@@ -95,39 +162,45 @@ export default function LocationPicker({
     }
 
     try {
-      // 1. Immediately update UI and map view
-      if (mapRef.current) {
-        applyMarker(lat, lng, mapRef.current);
-        mapRef.current.setView([lat, lng], 17);
+      if (targetMap) {
+        applyMarker(lat, lng, targetMap);
+        targetMap.setView([lat, lng], 17);
       }
 
-      // 2. Default address if geocoding fails
       let addressText = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+      let inUzbekistan = isInUzbekistanBounds(lat, lng);
       let inTashkent = isInBounds(lat, lng);
 
-      // 3. Try to get real address
       try {
         const data = await reverseGeocode(lat, lng);
         if (data?.display_name) addressText = data.display_name;
-        if (data?.address) inTashkent = inTashkent && isAddressTashkent(data.address);
+        if (data?.address) {
+          inUzbekistan = isAddressUzbekistan(data.address);
+          inTashkent = inUzbekistan && inTashkent && isAddressTashkent(data.address);
+        } else {
+          inTashkent = inUzbekistan && inTashkent;
+        }
       } catch {
-        // use defaults
+        inTashkent = inUzbekistan && inTashkent;
       }
 
-      onChange({
-        lat,
-        lng,
-        address: addressText,
-        isInTashkent: inTashkent,
-      });
+      if (onChangeRef.current) {
+        onChangeRef.current({
+          lat,
+          lng,
+          address: addressText,
+          isInTashkent: inTashkent,
+          isInUzbekistan: inUzbekistan,
+        });
+      }
 
-      // mapRef.current.setView([lat, lng], 17); was already added above.
-      
       if (!silent) {
         setMessage(
-          inTashkent
-            ? "Toshkent shahri ichida. Manzil qabul qilindi."
-            : "Toshkent shahri tashqarisida. Yuk tashish kelishiladi.",
+          !inUzbekistan
+            ? "Tanlangan manzil O'zbekiston hududidan tashqarida."
+            : inTashkent
+              ? "Toshkent shahri ichida. Manzil qabul qilindi."
+              : "Toshkent shahri tashqarisida. Yuk tashish kelishiladi.",
         );
       }
     } catch {
@@ -142,10 +215,12 @@ export default function LocationPicker({
       setMessage("Brauzer lokatsiyani qo'llab-quvvatlamaydi.");
       return;
     }
+    if (loadingRef.current) return;
+    
     setLoading(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        void selectLocation(pos.coords.latitude, pos.coords.longitude);
+        void selectLocation(pos.coords.latitude, pos.coords.longitude, mapRef.current);
       },
       () => {
         setLoading(false);
@@ -155,33 +230,40 @@ export default function LocationPicker({
     );
   };
 
-  const initLeafletMap = (container: HTMLDivElement, initialValue: LocationValue | null) => {
-    const L = (window as any).L;
-    if (!L) return null;
+  useEffect(() => {
+    if (!ready || !mapContainerRef.current) return;
 
-    const map = L.map(container, {
+    const L = (window as any).L;
+    if (!L) return;
+
+    // Destroy existing map if any
+    if (mapRef.current) {
+      mapRef.current.remove();
+      mapRef.current = null;
+    }
+
+    const targetContainer = isFullScreen ? fullScreenMapContainerRef.current : mapContainerRef.current;
+    if (!targetContainer) return;
+
+    const map = L.map(targetContainer, {
       zoomControl: false,
+      attributionControl: false,
+      tap: false, // Prevents lag on mobile touch
+      touchZoom: true,
+      bounceAtZoomLimits: false,
+      zoomAnimation: true,
+      markerZoomAnimation: true,
+      inertia: true,
+      inertiaResistance: 4000,
     }).setView(
-      initialValue ? [initialValue.lat, initialValue.lng] : [TASHKENT_CENTER.lat, TASHKENT_CENTER.lng],
-      initialValue ? 15 : 12,
+      value ? [value.lat, value.lng] : [TASHKENT_CENTER.lat, TASHKENT_CENTER.lng],
+      value ? 17 : 12,
     );
 
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
-
-    const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    const voyagerLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
       maxZoom: 20
     });
-    
-    const satelliteLayer = L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      {
-        attribution: 'Tiles &copy; Esri',
-        maxZoom: 20,
-      },
-    );
-
-    streetLayer.addTo(map);
+    voyagerLayer.addTo(map);
 
     const googleStreets = L.tileLayer('http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
       maxZoom: 20,
@@ -193,47 +275,38 @@ export default function LocationPicker({
       subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
     });
 
-    googleStreets.addTo(map);
+    L.control.layers(
+      {
+        "Toza xarita (Yandex look)": voyagerLayer,
+        "Google Xarita": googleStreets,
+        "Google Yo'ldosh": googleHybrid,
+      },
+      undefined,
+      { position: 'topleft' }
+    ).addTo(map);
 
-    L.control
-      .layers(
-        {
-          "Google Xarita": googleStreets,
-          "Google Sun'iy yo'ldosh": googleHybrid,
-          "Oddiy xarita": streetLayer,
-        },
-        undefined,
-        { position: 'topright' },
-      )
-      .addTo(map);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
 
     map.on('click', (event: any) => {
       const { lat, lng } = event.latlng;
-      void selectLocation(lat, lng);
+      void selectLocation(lat, lng, map);
     });
 
-    if (initialValue) {
-      L.marker([initialValue.lat, initialValue.lng]).addTo(map);
+    if (value) {
+      applyMarker(value.lat, value.lng, map);
     }
 
-    return map;
-  };
-
-  useEffect(() => {
-    if (!ready || isFullScreen || !mapContainerRef.current) return;
-
-    const map = initLeafletMap(mapContainerRef.current, value);
     mapRef.current = map;
 
-    // Fix white map issue by invalidating size after a short delay
+    // Small delay to ensure container is fully rendered
     const timer = setTimeout(() => {
       map.invalidateSize();
-    }, 200);
+    }, 100);
 
     return () => {
       clearTimeout(timer);
-      if (mapRef.current) {
-        mapRef.current.remove();
+      if (mapRef.current === map) {
+        map.remove();
         mapRef.current = null;
         markerRef.current = null;
       }
@@ -241,25 +314,11 @@ export default function LocationPicker({
   }, [ready, isFullScreen]);
 
   useEffect(() => {
-    if (!ready || !isFullScreen || !fullScreenMapContainerRef.current) return;
+    if (!ready || !mapRef.current || !value) return;
 
-    const map = initLeafletMap(fullScreenMapContainerRef.current, value);
-    mapRef.current = map;
-
-    // Fix white map issue
-    const timer = setTimeout(() => {
-      map.invalidateSize();
-    }, 200);
-
-    return () => {
-      clearTimeout(timer);
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-        markerRef.current = null;
-      }
-    };
-  }, [ready, isFullScreen]);
+    applyMarker(value.lat, value.lng, mapRef.current);
+    mapRef.current.setView([value.lat, value.lng], 17);
+  }, [ready, value?.lat, value?.lng]);
 
   return (
     <div className="space-y-4">
@@ -267,6 +326,32 @@ export default function LocationPicker({
         rel="stylesheet"
         href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       />
+      <style>{`
+        .yandex-label-tooltip {
+          background: white !important;
+          border: none !important;
+          box-shadow: 0 4px 15px rgba(0,0,0,0.15) !important;
+          border-radius: 8px !important;
+          padding: 4px 8px !important;
+          color: #333 !important;
+          font-family: inherit !important;
+        }
+        .yandex-label-tooltip:before {
+          border-right-color: white !important;
+        }
+        .leaflet-tooltip-right:before {
+          left: -10px !important;
+          border-right-color: white !important;
+        }
+        .custom-yandex-marker {
+          background: none !important;
+          border: none !important;
+        }
+        .leaflet-container {
+          cursor: crosshair !important;
+          touch-action: none !important; /* Prevents browser intercepting touch */
+        }
+      `}</style>
       <Script
         src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         onLoad={() => setReady(true)}
@@ -329,7 +414,25 @@ export default function LocationPicker({
         </button>
       )}
 
-      {showWarning && value && !value.isInTashkent && (
+      {showWarning && value && value.isInUzbekistan === false && (
+        <div className="animate-in fade-in slide-in-from-top-2 duration-300 rounded-2xl bg-red-50 border border-red-200 p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-red-100 rounded-lg text-red-600">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-7.938 4h15.876c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L2.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-bold text-red-900">Xatolik</p>
+              <p className="text-xs text-red-800/85 mt-0.5 leading-relaxed">
+                Tanlangan manzil O&apos;zbekiston hududidan tashqarida. Buyurtma berish uchun O&apos;zbekiston ichidagi manzilni tanlang.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showWarning && value && value.isInUzbekistan !== false && !value.isInTashkent && (
         <div className="animate-in fade-in slide-in-from-top-2 duration-300 rounded-2xl bg-amber-50 border border-amber-200 p-4 shadow-sm">
           <div className="flex items-start gap-3">
             <div className="p-2 bg-amber-100 rounded-lg text-amber-600">
@@ -349,7 +452,7 @@ export default function LocationPicker({
       )}
 
       {isFullScreen && (
-        <div className="fixed inset-0 z-[100] flex flex-col bg-white animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[3000] flex flex-col bg-white animate-in fade-in duration-300">
           <div className="flex items-center justify-between px-6 py-4 border-b">
             <div>
               <h3 className="text-lg font-serif font-bold text-ink">Manzilni tanlang</h3>
@@ -368,18 +471,45 @@ export default function LocationPicker({
           <div className="relative flex-1 bg-sand/10">
             <div ref={fullScreenMapContainerRef} className="absolute inset-0" />
             
-            <div className="absolute top-4 left-4 right-4 md:left-auto md:w-80 z-[1000]">
+            <div className="absolute top-4 left-4 right-4 md:left-auto md:w-80 z-[1000] space-y-3">
               <div className="rounded-2xl bg-white/95 p-4 shadow-2xl backdrop-blur-md border border-white/20">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-ink/40 mb-2">Hozirgi manzil</p>
                 <p className="text-sm font-medium text-ink line-clamp-2">
                   {loading ? 'Aniqlanmoqda...' : value?.address || 'Manzil tanlanmagan'}
                 </p>
-                {value && !value.isInTashkent && (
-                   <p className="mt-2 text-[11px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded inline-block">
-                     Tashkentdan tashqari hudud
-                   </p>
-                )}
               </div>
+
+              {value && value.isInUzbekistan === false && (
+                <div className="animate-in slide-in-from-top-4 duration-500 rounded-2xl bg-red-500 p-4 shadow-2xl border border-red-400 text-white">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-7.938 4h15.876c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L2.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div>
+                      <p className="text-sm font-bold">Xatolik</p>
+                      <p className="text-[11px] opacity-95 leading-tight mt-1">
+                        Tanlangan manzil O&apos;zbekiston hududidan tashqarida. Buyurtma berib bo&apos;lmaydi.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {value && value.isInUzbekistan !== false && !value.isInTashkent && (
+                <div className="animate-in slide-in-from-top-4 duration-500 rounded-2xl bg-amber-500 p-4 shadow-2xl border border-amber-400 text-white">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div>
+                      <p className="text-sm font-bold">Toshkentdan tashqari hudud</p>
+                      <p className="text-[11px] opacity-90 leading-tight mt-1">
+                        Bu manzilda tekin dastavka mavjud emas. Kelishilgan holda chiqiladi.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <button
@@ -407,4 +537,3 @@ export default function LocationPicker({
     </div>
   );
 }
-

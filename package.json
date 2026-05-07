@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "npm run front:dev",
-    "dev:clean": "npm --prefix front run dev:clean",
+    "dev:clean": "npm --prefix front run dev",
     "start": "npm --prefix backend run start",
     "start:dev": "npm --prefix backend run start:dev",
     "backend:dev": "npm --prefix backend run start:dev",

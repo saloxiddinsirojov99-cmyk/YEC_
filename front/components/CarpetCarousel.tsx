@@ -103,7 +103,7 @@ export default function CarpetCarousel({ carpets, loading = false, emptyText }: 
     return (
       <div className={trackClassName}>
         {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} data-carousel-item="true" className="w-[80vw] max-w-sm flex-shrink-0 snap-start">
+          <div key={index} data-carousel-item="true" className="w-[260px] sm:w-[280px] md:w-[320px] flex-shrink-0 snap-start">
             <SkeletonCard />
           </div>
         ))}
@@ -130,7 +130,7 @@ export default function CarpetCarousel({ carpets, loading = false, emptyText }: 
       onScroll={syncIndexFromScroll}
     >
       {carpets.map((carpet) => (
-        <div key={carpet.id} data-carousel-item="true" className="w-[80vw] max-w-sm flex-shrink-0 snap-start">
+        <div key={carpet.id} data-carousel-item="true" className="w-[260px] sm:w-[280px] md:w-[320px] flex-shrink-0 snap-start">
           <CarpetCard carpet={carpet} />
         </div>
       ))}

@@ -89,86 +89,15 @@ export default function PageLoader() {
       aria-live="polite"
       aria-label="Yuklanmoqda"
     >
-      <div className="flex flex-col items-center gap-6">
-        {/* True CSS 3D logo */}
-        <div style={{ perspective: '500px', perspectiveOrigin: '50% 50%' }}>
-          <div
-            className="animate-logo-3d-rtl"
-            style={{ transformStyle: 'preserve-3d', display: 'inline-flex', alignItems: 'center', gap: '16px' }}
-          >
-            {/* Logo image — also 3D */}
-            <div style={{ position: 'relative', width: '64px', height: '64px' }}>
-              {Array.from({ length: 20 }, (_, i) => (
-                <img
-                  key={i}
-                  src="/logo.png"
-                  alt=""
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'contain',
-                    transform: `translateZ(${(19 - i) * 1.2}px)`,
-                    opacity: i === 0 ? 1 : 0.6 - i * 0.01,
-                    mixBlendMode: i === 0 ? 'normal' : 'multiply',
-                  }}
-                />
-              ))}
-            </div>
-
-            {/* YEC + Market text — true 3D stack */}
-            <div style={{ position: 'relative' }}>
-              {/* 20 layers stacked in Z space */}
-              {Array.from({ length: 20 }, (_, i) => {
-                const isFront = i === 0;
-                const lightness = isFront ? 42 : Math.max(22, 42 - i * 1.5);
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      position: i === 0 ? 'relative' : 'absolute',
-                      inset: 0,
-                      transform: `translateZ(${(19 - i) * 1.2}px)`,
-                      lineHeight: 1,
-                      userSelect: 'none',
-                      pointerEvents: 'none',
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontFamily: "'Outfit', sans-serif",
-                        fontSize: '3.5rem',
-                        fontWeight: 900,
-                        letterSpacing: '0.04em',
-                        color: `hsl(220, 75%, ${lightness}%)`,
-                        lineHeight: 1,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      YEC
-                    </div>
-                    <div
-                      style={{
-                        fontFamily: "'Outfit', sans-serif",
-                        fontSize: '1rem',
-                        fontWeight: 700,
-                        letterSpacing: '0.3em',
-                        color: `hsl(220, 65%, ${lightness}%)`,
-                        textTransform: 'uppercase',
-                        marginTop: '2px',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      Market
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+      <div className="flex flex-col items-center gap-4">
+        <div className="relative inline-flex h-32 w-32 items-center justify-center bg-transparent">
+          <img
+            src="/logo.png"
+            alt="YEC Market"
+            className="h-full w-full object-contain animate-logo-3d-rtl"
+          />
         </div>
-        <p className="text-sm font-semibold text-ink/60 tracking-widest uppercase">Yuklanmoqda...</p>
+        <p className="text-sm font-semibold text-ink/70">Yuklanmoqda...</p>
       </div>
     </div>
   );

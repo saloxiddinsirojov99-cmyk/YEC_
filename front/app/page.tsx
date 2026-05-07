@@ -4,18 +4,29 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import CarpetList from '@/components/CarpetList';
 import CarpetCarousel from '@/components/CarpetCarousel';
+import NikeStyleSlider from '@/components/NikeStyleSlider';
 import { getCarpets, getCategories } from '@/services/carpet.service';
 import type { Carpet, Category } from '@/types/carpet';
 import { getErrorMessage, getImageUrl } from '@/services/api';
 import { getCartItems } from '@/services/cart.service';
-import ScrollReveal from '@/components/ScrollReveal';
-import { AnimationWrapper, FadeInStagger, FadeInItem } from '@/components/ui/animation-wrapper';
+import { toast } from '@/components/ui/Toast';
+import {
+  FadeInStagger,
+  FadeInItem,
+  SectionReveal,
+  SectionHeading,
+  CardStagger,
+  CardItem,
+} from '@/components/ui/animation-wrapper';
 
 const fallbackCategoryImage =
   'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=900&q=80';
 
-const PRAYER_MAT_PREVIEW_LIMIT = 6;
-const OVAL_CARPET_PREVIEW_LIMIT = 6;
+const PRAYER_MAT_PREVIEW_LIMIT = 4;
+const OVAL_CARPET_PREVIEW_LIMIT = 4;
+const POPULAR_MOBILE_LIMIT = 4;
+const POPULAR_DESKTOP_LIMIT = 4;
+const MOBILE_MEDIA_QUERY = '(max-width: 767px)';
 
 export default function HomePage() {
   const [latestCarpets, setLatestCarpets] = useState<Carpet[]>([]);
@@ -26,10 +37,10 @@ export default function HomePage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryCarpets, setCategoryCarpets] = useState<Record<string, Carpet | undefined>>({});
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [copied, setCopied] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
   const [cartCount, setCartCount] = useState(0);
+  const [popularPreviewLimit, setPopularPreviewLimit] = useState(POPULAR_DESKTOP_LIMIT);
 
   const isPrayerMatCategory = (name?: string) =>
     (name ?? '').toLowerCase().includes('joynamoz');
@@ -73,7 +84,7 @@ export default function HomePage() {
       if (diff !== 0) return diff;
       return a.name.localeCompare(b.name);
     });
-    return sorted.slice(0, 3);
+    return sorted.slice(0, 4);
   };
 
   useEffect(() => {
@@ -81,12 +92,11 @@ export default function HomePage() {
     const load = async () => {
       try {
         setLoading(true);
-        setError('');
 
         const [latestRes, popularRes, prayerRes, ovalRes, categoriesRes] =
           await Promise.allSettled([
-            getCarpets({ page: 1, limit: 6, kind: 'carpet' }),
-            getCarpets({ page: 1, limit: 3, sortBy: 'popular', kind: 'carpet' }),
+            getCarpets({ page: 1, limit: 8, kind: 'carpet' }),
+            getCarpets({ page: 1, limit: POPULAR_DESKTOP_LIMIT, sortBy: 'popular', kind: 'carpet' }),
             getCarpets({ page: 1, limit: PRAYER_MAT_PREVIEW_LIMIT, kind: 'prayer' }),
             getCarpets({ page: 1, limit: OVAL_CARPET_PREVIEW_LIMIT, kind: 'oval' }),
             getCategories(),
@@ -124,9 +134,7 @@ export default function HomePage() {
             oval: ovalRes.status === 'rejected' ? ovalRes.reason : null,
             categories: categoriesRes.status === 'rejected' ? categoriesRes.reason : null,
           });
-          setError(
-            "Ba'zi ma'lumotlarni yuklashda xatolik yuz berdi. Qolgan bo'limlar ishlashda davom etadi.",
-          );
+          toast.error("Ba'zi ma'lumotlarni yuklashda xatolik yuz berdi. Qolgan bo'limlar ishlashda davom etadi.");
         }
 
         const grouped = latest.reduce((acc, carpet) => {
@@ -163,7 +171,7 @@ export default function HomePage() {
 
         setCategoryCarpets(previewMap);
       } catch (err) {
-        setError(getErrorMessage(err));
+        toast.error(getErrorMessage(err));
       } finally {
         setLoading(false);
       }
@@ -173,11 +181,37 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+
+    const mq = window.matchMedia(MOBILE_MEDIA_QUERY);
+    const apply = () =>
+      setPopularPreviewLimit(mq.matches ? POPULAR_MOBILE_LIMIT : POPULAR_DESKTOP_LIMIT);
+
+    apply();
+    const onChange = () => apply();
+
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', onChange);
+      return () => mq.removeEventListener('change', onChange);
+    }
+
+    (mq as unknown as { addListener?: (cb: () => void) => void }).addListener?.(onChange);
+    return () => {
+      (mq as unknown as { removeListener?: (cb: () => void) => void }).removeListener?.(onChange);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!mounted) return;
 
     const updatePopular = async () => {
       try {
-        const res = await getCarpets({ page: 1, limit: 3, sortBy: 'popular', kind: 'carpet' });
+        const res = await getCarpets({
+          page: 1,
+          limit: POPULAR_MOBILE_LIMIT,
+          sortBy: 'popular',
+          kind: 'carpet',
+        });
         if (res.items) setPopularCarpets(res.items);
       } catch (err) {
         console.error('Failed to update popular carpets:', err);
@@ -210,28 +244,63 @@ export default function HomePage() {
     [categories, categoryCarpets],
   );
 
-  const popularDisplay = useMemo(() => popularCarpets, [popularCarpets]);
+  const popularDisplay = useMemo(
+    () => popularCarpets.slice(0, popularPreviewLimit),
+    [popularCarpets, popularPreviewLimit],
+  );
 
-  if (!mounted) return <div className="min-h-screen" />;
+  const heroCarpets = useMemo(() => {
+    const sortedCategories = [...categories].sort((a, b) => {
+       const aName = a.name.toLowerCase();
+       const bName = b.name.toLowerCase();
+       const getOrder = (n: string) => {
+         if (n.includes('iran soft') || n.includes('eron')) return 1;
+         if (n.includes('steffani') || n.includes('stefani')) return 2;
+         if (n.includes('verona')) return 3;
+         return 99;
+       };
+       return getOrder(aName) - getOrder(bName);
+    });
+
+    const slides: Carpet[] = [];
+    for (const cat of sortedCategories) {
+       const carpet = categoryCarpets[cat.id];
+       if (carpet && carpet.images && carpet.images.length > 0) {
+         if (!slides.some(s => s.id === carpet.id)) {
+           slides.push({ ...carpet, category: cat });
+         }
+       }
+    }
+    
+    return slides.length > 0 ? slides.slice(0, 6) : latestCarpets.slice(0, 5);
+  }, [categories, categoryCarpets, latestCarpets]);
 
   return (
-    <div className="space-y-24 pb-16" suppressHydrationWarning>
+    <div className="space-y-7 pb-16" suppressHydrationWarning>
       {/* 1. Hero Section */}
-      <section className="hero-premium group relative min-h-[500px] overflow-hidden">
-        <div className="hero-glow -top-20 -left-20 opacity-40" />
-        <div className="hero-glow -bottom-20 -right-20 opacity-30" style={{ animationDelay: '2s' }} />
+      <section className="hero-premium group relative min-h-[380px] overflow-hidden md:min-h-[460px]">
+        <div className="aurora-motion" />
+        <div className="hero-glow float-orb -top-20 -left-20 opacity-40" />
+        <div className="hero-glow float-orb float-orb-delay -bottom-20 -right-20 opacity-30" style={{ animationDelay: '2s' }} />
+        <div className="pointer-events-none absolute inset-0 z-[1]">
+          <span className="hero-carpet-rosette hero-carpet-rosette-left" />
+          <span className="hero-carpet-rosette hero-carpet-rosette-right" />
+          <span className="hero-carpet-rosette hero-carpet-rosette-small hero-carpet-rosette-small-1" />
+          <span className="hero-carpet-rosette hero-carpet-rosette-small hero-carpet-rosette-small-2" />
+          <span className="hero-carpet-rosette hero-carpet-rosette-small hero-carpet-rosette-small-3" />
+        </div>
 
-        {/* Marquee effect passing over the background/image - High-end premium styling */}
-        <div className="pointer-events-none absolute inset-x-0 top-[20%] z-[-1] hidden overflow-hidden opacity-25 select-none md:flex">
-          <div className="whitespace-nowrap text-[clamp(1.2rem,7vw,4.5rem)] font-black uppercase tracking-[0.35em] text-transparent bg-clip-text bg-gradient-to-r from-white/5 via-white/30 to-white/5 motion-safe:animate-marquee motion-reduce:animate-none">
-            <span className="text-[#D4AF37]">YEC</span> PREMIYUM GILAMLAR — HAR BIR XONADON UCHUN SHARQONA SIFAT <span className="mx-16 inline-block">•</span>
-            <span className="text-[#D4AF37]">YEC</span> PREMIYUM GILAMLAR — HAR BIR XONADON UCHUN SHARQONA SIFAT <span className="mx-16 inline-block">•</span>
-            <span className="text-[#D4AF37]">YEC</span> PREMIYUM GILAMLAR — HAR BIR XONADON UCHUN SHARQONA SIFAT <span className="mx-16 inline-block">•</span>
+        {/* Marquee effect in background, visually passing behind hero image */}
+        <div className="pointer-events-none absolute inset-x-0 top-[24%] z-[2] flex overflow-hidden opacity-30 select-none md:top-[20%] md:opacity-25">
+          <div className="whitespace-nowrap text-[clamp(0.95rem,5vw,4.5rem)] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-white/10 via-white/35 to-white/10 motion-safe:animate-marquee motion-reduce:animate-none md:text-[clamp(1.2rem,7vw,4.5rem)] md:tracking-[0.35em]">
+            <span className="text-[#D4AF37]">YEC</span> PREMIYUM GILAMLAR - HAR BIR XONADON UCHUN SHARQONA SIFAT <span className="mx-16 inline-block">*</span>
+            <span className="text-[#D4AF37]">YEC</span> PREMIYUM GILAMLAR - HAR BIR XONADON UCHUN SHARQONA SIFAT <span className="mx-16 inline-block">*</span>
+            <span className="text-[#D4AF37]">YEC</span> PREMIYUM GILAMLAR - HAR BIR XONADON UCHUN SHARQONA SIFAT <span className="mx-16 inline-block">*</span>
           </div>
         </div>
 
-        <div className="section-shell relative z-10 grid min-h-[500px] items-center gap-12 py-20 md:grid-cols-2">
-          <AnimationWrapper animationType="slide-up" className="z-40">
+        <div className="section-shell relative z-10 grid min-h-[380px] items-center gap-8 py-8 md:min-h-[460px] md:gap-10 md:py-12 md:grid-cols-2">
+          <div className="z-40">
             <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-5 py-1.5 text-xs font-bold uppercase tracking-[0.3em] text-white/90 backdrop-blur-md">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
               <span className="text-[#D4AF37]">YEC</span> Market
@@ -252,9 +321,9 @@ export default function HomePage() {
                 Biz haqimizda
               </Link>
             </div>
-          </AnimationWrapper>
-          <AnimationWrapper animationType="fade" delay={0.2} className="flex justify-center">
-            <div className="relative w-full max-w-lg">
+          </div>
+          <div className="flex justify-center">
+            <div className="relative w-full max-w-lg float-orb">
               <div className="absolute -inset-1 rounded-[2.5rem] bg-gradient-to-tr from-accent/40 to-white/10 blur-2xl opacity-50" />
               <div className="relative overflow-hidden rounded-[2rem] border border-white/20 shadow-2xl">
                 <img
@@ -264,14 +333,14 @@ export default function HomePage() {
                 />
               </div>
             </div>
-          </AnimationWrapper>
+          </div>
         </div>
       </section>
 
 
-      {/* 2. Yangi gilamlar */}
-      <ScrollReveal className="section-shell">
-        <div className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
+      {/* 2. Yangi gilamlar - fade-up animatsiya */}
+      <SectionReveal animation="fade-up" className="section-shell">
+        <SectionHeading className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.4em] text-sky-600">Yangi</p>
             <h2 className="text-premium font-serif text-3xl md:text-5xl">Yangi gilamlar</h2>
@@ -285,17 +354,17 @@ export default function HomePage() {
           >
             Barchasini ko&apos;rish <span className="text-lg transition-transform group-hover:translate-x-1">-&gt;</span>
           </Link>
-        </div>
+        </SectionHeading>
         <CarpetList carpets={latestCarpets} loading={loading} emptyText="Yangi gilamlar topilmadi." />
-      </ScrollReveal>
+      </SectionReveal>
 
-      {/* 3. Mashhur gilamlar */}
-      <ScrollReveal className="section-shell">
-        <div className="relative overflow-hidden rounded-[2.75rem] border border-blue-400/30 bg-[radial-gradient(circle_at_top,hsla(var(--popular-glow),0.15),_transparent_55%),radial-gradient(circle_at_bottom,hsla(var(--popular-glow),0.05),_transparent_55%)] p-8 shadow-[0_40px_100px_rgba(37,99,235,0.12)] md:p-12 transition-all duration-700 hover:shadow-[0_50px_120px_rgba(37,99,235,0.2)]">
-          <div className="absolute -top-16 -right-10 h-52 w-52 rounded-full bg-blue-400/20 blur-3xl" />
-          <div className="absolute -bottom-24 left-0 h-72 w-72 rounded-full bg-blue-600/10 blur-3xl" />
-          
-          <div className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
+      {/* 3. Mashhur gilamlar - slide-right (chapdan) animatsiya */}
+      <SectionReveal animation="slide-right" className="section-shell">
+        <div className="section-breathe relative overflow-hidden rounded-[2.75rem] border border-blue-400/30 bg-[radial-gradient(circle_at_top,hsla(var(--popular-glow),0.15),_transparent_55%),radial-gradient(circle_at_bottom,hsla(var(--popular-glow),0.05),_transparent_55%)] p-8 shadow-[0_40px_100px_rgba(37,99,235,0.12)] md:p-12 transition-all duration-700 hover:shadow-[0_50px_120px_rgba(37,99,235,0.2)]">
+          <div className="absolute float-orb -top-16 -right-10 h-52 w-52 rounded-full bg-blue-400/20 blur-3xl" />
+          <div className="absolute float-orb float-orb-delay -bottom-24 left-0 h-72 w-72 rounded-full bg-blue-600/10 blur-3xl" />
+
+          <SectionHeading className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.4em] text-blue-600">Top sotuvlar</p>
               <h2 className="text-premium font-serif text-3xl md:text-5xl">Mashhur gilamlar</h2>
@@ -309,18 +378,23 @@ export default function HomePage() {
             >
               Barchasini ko&apos;rish <span className="text-lg transition-transform group-hover:translate-x-1">-&gt;</span>
             </Link>
-          </div>
+          </SectionHeading>
 
           <div className="relative z-10">
-            <CarpetList carpets={popularCarpets.slice(0, 3)} loading={loading} emptyText="Mashhur gilamlar hali yo'q." />
+            <CarpetList carpets={popularDisplay} loading={loading} emptyText="Mashhur gilamlar hali yo'q." />
           </div>
         </div>
-      </ScrollReveal>
+      </SectionReveal>
 
-      {/* 4. Joynamozlar */}
-      <ScrollReveal className="section-shell">
-        <div className="relative overflow-hidden rounded-[2.75rem] border border-emerald-400/30 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.1),_transparent_55%)] p-8 shadow-[0_40px_100px_rgba(16,185,129,0.08)] md:p-12">
-          <div className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
+      {/* Nike yulduzlari animatsion slideri - Gilam turlari uchun maxsus guruh */}
+      <SectionReveal animation="fade-up" className="w-full">
+        <NikeStyleSlider carpets={heroCarpets} />
+      </SectionReveal>
+
+      {/* 4. Joynamozlar - slide-left (o'ngdan) animatsiya */}
+      <SectionReveal animation="slide-left" className="section-shell">
+        <div className="section-breathe relative overflow-hidden rounded-[2.5rem] border border-emerald-400/30 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.1),_transparent_55%)] p-4 sm:p-8 shadow-[0_40px_100px_rgba(16,185,129,0.08)] md:p-12">
+          <SectionHeading className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.4em] text-emerald-600">Premium</p>
               <h2 className="text-premium font-serif text-3xl md:text-5xl">Joynamozlar</h2>
@@ -334,20 +408,20 @@ export default function HomePage() {
             >
               Barchasini ko&apos;rish <span className="text-lg transition-transform group-hover:translate-x-1">-&gt;</span>
             </Link>
-          </div>
-          <div className="md:hidden">
+          </SectionHeading>
+          <div className="md:hidden -mx-2 px-2">
             <CarpetCarousel carpets={prayerMats} loading={loading} emptyText="Joynamozlar topilmadi." />
           </div>
           <div className="hidden md:block">
             <CarpetList carpets={prayerMats} loading={loading} emptyText="Joynamozlar topilmadi." />
           </div>
         </div>
-      </ScrollReveal>
+      </SectionReveal>
 
-      {/* 6. Turlar (Categories) */}
-      <ScrollReveal className="section-shell">
-        <div className="relative overflow-hidden rounded-[2.75rem] border border-fuchsia-300/30 bg-[radial-gradient(circle_at_top,rgba(217,70,239,0.12),_transparent_55%)] p-8 shadow-[0_40px_100px_rgba(217,70,239,0.08)] md:p-12">
-          <div className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
+      {/* 6. Ovalni gilamlar - zoom-in animatsiya */}
+      <SectionReveal animation="zoom-in" className="section-shell">
+        <div className="section-breathe relative overflow-hidden rounded-[2.5rem] border border-fuchsia-300/30 bg-[radial-gradient(circle_at_top,rgba(217,70,239,0.12),_transparent_55%)] p-4 sm:p-8 shadow-[0_40px_100px_rgba(217,70,239,0.08)] md:p-12">
+          <SectionHeading className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.4em] text-fuchsia-600">Maxsus</p>
               <h2 className="text-premium font-serif text-3xl md:text-5xl">Ovalni gilamlar</h2>
@@ -361,29 +435,29 @@ export default function HomePage() {
             >
               Barchasini ko&apos;rish <span className="text-lg transition-transform group-hover:translate-x-1">-&gt;</span>
             </Link>
-          </div>
-          <div className="md:hidden">
+          </SectionHeading>
+          <div className="md:hidden -mx-2 px-2">
             <CarpetCarousel carpets={ovalCarpets} loading={loading} emptyText="Oval gilamlar topilmadi." />
           </div>
           <div className="hidden md:block">
             <CarpetList carpets={ovalCarpets} loading={loading} emptyText="Oval gilamlar topilmadi." />
           </div>
         </div>
-      </ScrollReveal>
+      </SectionReveal>
 
-      {/* 5. Ovalni gilamlar */}
-      <ScrollReveal className="section-shell">
-        <div className="mb-10">
+      {/* 5. Gilam turlari - flip-up (3D aylanib) animatsiya */}
+      <SectionReveal animation="flip-up" className="section-shell">
+        <SectionHeading className="mb-10">
           <p className="text-xs font-bold uppercase tracking-[0.4em] text-amber-600">Katalog</p>
           <h2 className="text-premium font-serif text-3xl md:text-5xl">Gilam turlari</h2>
-        </div>
-        <FadeInStagger className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:gap-6">
+        </SectionHeading>
+        <CardStagger className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:gap-6">
           {loading
             ? Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="aspect-[4/5] animate-pulse rounded-3xl bg-slate-100" />
               ))
             : categoryPreview.map(({ category, preview }) => (
-                <FadeInItem key={category.id}>
+                <CardItem key={category.id}>
                   <Link
                     href={`/turlar/${category.id}`}
                     className="group relative block aspect-[4/5] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl"
@@ -398,20 +472,24 @@ export default function HomePage() {
                       <p className="text-sm font-bold text-white md:text-base">{category.name}</p>
                     </div>
                   </Link>
-                </FadeInItem>
+                </CardItem>
               ))}
-        </FadeInStagger>
-      </ScrollReveal>
+        </CardStagger>
+      </SectionReveal>
 
-      {/* About & Contact */}
-      <ScrollReveal className="section-shell grid gap-8 pb-10 md:grid-cols-2">
-        <article className="relative overflow-hidden rounded-[2.75rem] border border-sky-500/20 bg-[radial-gradient(circle_at_top,_rgba(14,116,144,0.35),_transparent_55%),linear-gradient(135deg,#0b1e3a,#0a2342,#0b1529)] p-10 text-white shadow-[0_50px_140px_rgba(30,64,175,0.35)] md:p-12">
+      {/* About & Contact - rise (pastdan ko'tarilish) animatsiya */}
+      <SectionReveal animation="rise" duration={0.8} className="section-shell pb-10">
+        <div className="section-breathe relative overflow-hidden rounded-[2.9rem] border border-sky-300/20 shadow-[0_50px_140px_rgba(15,23,42,0.35)]">
+          <div className="pointer-events-none absolute inset-y-0 left-1/2 z-10 hidden w-24 -translate-x-1/2 bg-gradient-to-r from-sky-900/40 via-blue-900/20 to-slate-950/45 blur-2xl md:block" />
+          <div className="pointer-events-none absolute inset-y-0 left-1/2 z-20 hidden w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-white/20 to-transparent md:block" />
+          <div className="grid gap-0 md:grid-cols-2">
+        <article className="relative overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(14,116,144,0.35),_transparent_55%),linear-gradient(135deg,#0b1e3a,#0a2342,#0b1529)] p-10 text-white md:p-12">
           <div className="absolute inset-0 bg-[linear-gradient(140deg,rgba(255,255,255,0.05),rgba(15,23,42,0.2))]" />
           <div className="relative z-10">
             <h3 className="font-serif text-4xl md:text-5xl">Biz haqimizda</h3>
             <div className="mt-6 space-y-4 text-lg leading-relaxed text-white/90">
               <p>
-                <span className="text-[#D4AF37] font-bold">YEC</span> Market — <span className="text-[#D4AF37] font-bold">YEC</span> zavodining Toshkentdagi rasmiy filiallar tarmog&apos;i. 
+                <span className="text-[#D4AF37] font-bold">YEC</span> Market - <span className="text-[#D4AF37] font-bold">YEC</span> zavodining Toshkentdagi rasmiy filiallar tarmog&apos;i. 
                 Bizning gilamlarimiz Eron texnologiyasi asosida, yuqori zichlikda va sifatli materiallardan to&apos;qiladi.
               </p>
               <p>
@@ -426,7 +504,8 @@ export default function HomePage() {
           </div>
         </article>
 
-        <article className="relative overflow-hidden rounded-[2.75rem] border border-white/5 bg-[#020617] p-10 text-white shadow-[0_50px_140px_rgba(0,0,0,0.6)] md:p-12">
+        <article className="relative overflow-hidden border-t border-white/10 bg-[#020617] p-10 text-white md:border-t-0 md:border-l md:border-white/10 md:p-12">
+          <div className="pointer-events-none absolute -top-10 left-0 right-0 h-20 bg-gradient-to-b from-sky-900/35 via-slate-900/20 to-transparent md:hidden" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.1),_transparent_60%)]" />
           <div className="relative z-10">
             <h3 className="font-serif text-4xl md:text-5xl">Aloqa</h3>
@@ -508,13 +587,10 @@ export default function HomePage() {
             </div>
           </div>
         </article>
-      </ScrollReveal>
+          </div>
+        </div>
+      </SectionReveal>
 
-      {error ? (
-        <section className="section-shell">
-          <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
-        </section>
-      ) : null}
 
       <Link
         href="/cart"

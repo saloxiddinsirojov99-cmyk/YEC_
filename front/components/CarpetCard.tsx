@@ -1,26 +1,33 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Carpet } from '@/types/carpet';
-import { formatPrice, getImageUrl } from '@/services/api';
+import { formatPrice } from '@/services/api';
 import { getPricePerM2 } from '@/utils/size';
 import { clampDiscountPercent, getDiscountedPrice } from '@/utils/price';
-import { addToCart, getCartItems } from '@/services/cart.service';
-import { getToken } from '@/services/auth.service';
+import {
+  addToCart,
+  getCartItems,
+  type CartChangeEventDetail,
+} from '@/services/cart.service';
+import { getToken, getUserFromToken } from '@/services/auth.service';
 import { isCarpetLiked, likeCarpet } from '@/services/like.service';
+import {
+  FALLBACK_CARPET_IMAGE,
+  getPrimaryCarpetImage,
+} from '@/utils/carpet-image';
+import { buildAdminCarpetEditUrl } from '@/utils/admin-carpet-edit';
 
 type Props = {
   carpet: Carpet & { likes?: number }; // Fallback optional likes just in case
 };
 
-const placeholder =
-  'https://images.unsplash.com/photo-1600166898405-da9535204843?auto=format&fit=crop&w=1200&q=80';
-
 export default function CarpetCard({ carpet }: Props) {
   const router = useRouter();
   const [showToast, setShowToast] = useState(false);
   const [isAdded, setIsAdded] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   
   // Use DB likes as initial source of truth
   const initialLikes = typeof carpet.likes === 'number' ? carpet.likes : 0;
@@ -33,7 +40,16 @@ export default function CarpetCard({ carpet }: Props) {
   const discountPercent = clampDiscountPercent(carpet.discountPercent);
   const discountedPrice = getDiscountedPrice(carpet.price, discountPercent);
   const pricePerM2 = getPricePerM2(discountedPrice, carpet.size);
-  const imageSrc = getImageUrl(carpet.images?.[0]) || placeholder;
+  const imageCandidate = useMemo(
+    () => getPrimaryCarpetImage(carpet),
+    [carpet],
+  );
+  const adminEditUrl = useMemo(() => buildAdminCarpetEditUrl(carpet), [carpet]);
+  const [imageSrc, setImageSrc] = useState(imageCandidate.primary);
+
+  useEffect(() => {
+    setImageSrc(imageCandidate.primary);
+  }, [imageCandidate.primary]);
   
   const openDetail = () => {
     router.push(`/carpets/${carpet.id}`);
@@ -45,9 +61,24 @@ export default function CarpetCard({ carpet }: Props) {
       setIsAdded(items.some((item) => item.carpetId === carpet.id));
     };
 
+    const handleCartChange = (event: Event) => {
+      const detail = (event as CustomEvent<CartChangeEventDetail>).detail;
+
+      if (detail?.action === 'clear') {
+        setIsAdded(false);
+        return;
+      }
+
+      if (detail?.carpetId && detail.carpetId !== carpet.id) {
+        return;
+      }
+
+      syncAddedState();
+    };
+
     syncAddedState();
-    window.addEventListener('yec-cart-changed', syncAddedState);
-    return () => window.removeEventListener('yec-cart-changed', syncAddedState);
+    window.addEventListener('yec-cart-changed', handleCartChange);
+    return () => window.removeEventListener('yec-cart-changed', handleCartChange);
   }, [carpet.id]);
 
   useEffect(() => {
@@ -81,6 +112,17 @@ export default function CarpetCard({ carpet }: Props) {
     window.addEventListener('yec-like-changed', handleLikeChange);
     return () => window.removeEventListener('yec-like-changed', handleLikeChange);
   }, [carpet.id, carpet.isLiked]);
+
+  useEffect(() => {
+    const syncAdminState = () => {
+      const role = getUserFromToken()?.role;
+      setIsAdmin(role === 'ADMIN' || role === 'SUPERADMIN');
+    };
+
+    syncAdminState();
+    window.addEventListener('yec-auth-changed', syncAdminState);
+    return () => window.removeEventListener('yec-auth-changed', syncAdminState);
+  }, []);
 
   const handleAddToCart = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -141,7 +183,7 @@ export default function CarpetCard({ carpet }: Props) {
 
   return (
     <article
-      className="classic-carpet-card relative overflow-hidden group cursor-pointer min-w-0"
+      className="classic-carpet-card relative overflow-hidden group cursor-pointer min-w-0 flex flex-col h-full bg-white"
       onClick={openDetail}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -163,12 +205,22 @@ export default function CarpetCard({ carpet }: Props) {
           alt={carpet.name}
           loading="lazy"
           decoding="async"
+          draggable={false}
+          onError={() => {
+            if (imageCandidate.fallback && imageSrc !== imageCandidate.fallback) {
+              setImageSrc(imageCandidate.fallback);
+              return;
+            }
+            if (imageSrc !== FALLBACK_CARPET_IMAGE) {
+              setImageSrc(FALLBACK_CARPET_IMAGE);
+            }
+          }}
           className="h-full w-full object-cover transition-transform duration-700 ease-premium-in-out group-hover:scale-105"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 
         {discountPercent > 0 ? (
-          <span className="absolute left-3 top-14 z-10 rounded-full bg-amber-500 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-widest text-white shadow-lg sm:hidden">
+          <span className="absolute right-3 top-3 z-10 rounded-full bg-red-600 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-widest text-white shadow-lg sm:right-4 sm:top-4">
             -{discountPercent}%
           </span>
         ) : null}
@@ -200,11 +252,19 @@ export default function CarpetCard({ carpet }: Props) {
         
         {/* Stock Badge */}
         {carpet.stock <= 0 ? (
-          <div className="absolute top-3 right-3 z-10 rounded-full bg-slate-900/90 backdrop-blur-md px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white shadow-lg">
+          <div
+            className={`absolute right-3 z-10 rounded-full bg-slate-900/90 backdrop-blur-md px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white shadow-lg ${
+              discountPercent > 0 ? 'top-14 sm:top-16' : 'top-3 sm:top-4'
+            }`}
+          >
             Sotilgan
           </div>
         ) : !isPrayer && carpet.stock === 1 ? (
-          <div className="absolute top-3 right-3 z-10 flex items-center gap-1 rounded-full bg-orange-500 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white shadow-lg animate-pulse">
+          <div
+            className={`absolute right-3 z-10 flex items-center gap-1 rounded-full bg-orange-500 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-white shadow-lg animate-pulse ${
+              discountPercent > 0 ? 'top-14 sm:top-16' : 'top-3 sm:top-4'
+            }`}
+          >
             <span>Faqat 1 ta!</span>
           </div>
         ) : null}
@@ -219,50 +279,97 @@ export default function CarpetCard({ carpet }: Props) {
         </div>
       </div>
 
-      <div className="p-5 sm:p-8">
-        <div className="flex flex-col gap-4">
-          <div className="flex items-baseline justify-between gap-2">
-            <div>
+      <div className="p-5 sm:p-8 flex flex-col flex-1">
+        {carpet.size ? (
+          <div className="mb-4">
+            <div className="inline-flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest text-primary shadow-sm sm:px-3 sm:py-1.5 sm:text-xs">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 9h16M4 15h16M2 4h20v16H2z"/>
+              </svg>
+              {carpet.size}
+            </div>
+          </div>
+        ) : null}
+        <div className="flex flex-col gap-4 mt-auto">
+          <div className="flex items-end justify-between gap-2">
+            <div className="min-w-0">
               {carpet.stock <= 0 ? (
-                <p className="text-2xl font-bold tracking-tight text-ink/20 line-through">
+                <p className="text-lg font-bold tracking-tight text-ink/20 line-through sm:text-2xl">
                   {formatPrice(carpet.price)}
                 </p>
               ) : (
-                <div className="flex flex-col gap-0.5">
-                   <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-2">
-                      {discountPercent > 0 ? (
-                        <>
-                          <p className="order-1 whitespace-nowrap text-sm font-bold text-ink/30 line-through decoration-red-500 decoration-s sm:order-2 sm:text-lg">
-                            {formatPrice(carpet.price)}
-                          </p>
-                          <p className="order-2 whitespace-nowrap text-3xl font-black tracking-tight text-ink sm:order-1 sm:text-4xl">
-                            {formatPrice(discountedPrice)}
-                          </p>
-                        </>
-                      ) : (
-                        <p className="whitespace-nowrap text-3xl font-black tracking-tight text-ink sm:text-4xl">
-                          {formatPrice(discountedPrice)}
-                        </p>
-                      )}
-                   </div>
-                   {carpet.stock > 0 && !isPrayer && pricePerM2 ? (
-                     <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary sm:text-xs">
-                        {formatPrice(Math.round(pricePerM2))} / m²
-                     </p>
-                   ) : null}
+                <div className="max-w-full space-y-0.5 sm:space-y-1">
+                  {discountPercent > 0 ? (
+                    <p className="text-[10px] font-bold text-ink/30 line-through decoration-red-500 sm:text-sm lg:text-base">
+                      {formatPrice(carpet.price)}
+                    </p>
+                  ) : null}
+                  <p className="text-[18px] font-black leading-tight tracking-tight text-ink sm:text-3xl lg:text-[2.15rem]">
+                    {formatPrice(discountedPrice)}
+                  </p>
+                  {carpet.stock > 0 && !isPrayer && pricePerM2 ? (
+                    <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-primary sm:text-xs sm:tracking-[0.14em]">
+                      {formatPrice(Math.round(pricePerM2))} / m2
+                    </p>
+                  ) : null}
                 </div>
               )}
             </div>
+            <button
+              type="button"
+              onClick={handleAddToCart}
+              disabled={carpet.stock <= 0 || isAdded}
+              title={carpet.stock <= 0 ? 'Mavjud emas' : isAdded ? 'Savatda' : "Savatga qo'shish"}
+              className={`sm:hidden inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2 transition-all ${
+                carpet.stock <= 0
+                  ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-ink/30'
+                  : isAdded
+                    ? 'cursor-not-allowed border-emerald-200 bg-emerald-100 text-emerald-700'
+                    : 'border-primary/30 bg-white text-primary hover:border-primary hover:bg-primary/5'
+              }`}
+              aria-label={carpet.stock <= 0 ? 'Mavjud emas' : isAdded ? 'Savatda' : "Savatga qo'shish"}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="9" cy="20" r="1.5" />
+                <circle cx="18" cy="20" r="1.5" />
+                <path d="M3 4h2l2.2 10.2a1 1 0 0 0 1 .8h9.5a1 1 0 0 0 1-.8L21 7H7" />
+              </svg>
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
           </div>
 
-          {/* Detailed Info - Hidden on mobile, shown on desktop or in details page */}
-          <div className="hidden sm:block space-y-1">
-             <p className="text-xs font-semibold tracking-widest uppercase text-ink/40">
-                 {carpet.material} • {carpet.size}
-             </p>
+                    {/* Detailed Info - show on mobile for prayer mats, desktop for all */}
+          <div className={`${isPrayer ? 'block' : 'hidden'} sm:block space-y-1`}>
+            <p className="text-[11px] font-semibold tracking-wider uppercase text-ink/50 sm:text-xs sm:tracking-widest sm:text-ink/40 line-clamp-1">
+              Material: {carpet.material}
+            </p>
           </div>
 
-          <div className="flex flex-col gap-2 sm:grid sm:grid-cols-2 sm:gap-4">
+          <div
+            className={`flex flex-col gap-2 sm:grid sm:gap-4 ${
+              isAdmin ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
+            }`}
+          >
             <button
               type="button"
               onClick={(event) => {
@@ -288,6 +395,19 @@ export default function CarpetCard({ carpet }: Props) {
             >
               {carpet.stock <= 0 ? 'Mavjud emas' : isAdded ? "Savatda" : "Savatga"}
             </button>
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  router.push(adminEditUrl);
+                }}
+                className="flex items-center justify-center w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-amber-700 transition-all hover:bg-amber-500 hover:text-white"
+              >
+                Tahrirlash
+              </button>
+            ) : null}
           </div>
         </div>
       </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import CarpetList from '@/components/CarpetList';
 import Pagination from '@/components/Pagination';
 import { getCarpets } from '@/services/carpet.service';
@@ -17,6 +17,7 @@ export default function YangiGilamlarPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const suppressAutoSearchRef = useRef(true);
 
   const loadCarpets = async (state: typeof appliedFilters, targetPage: number) => {
     try {
@@ -26,7 +27,6 @@ export default function YangiGilamlarPage() {
       const res = await getCarpets({
         page: targetPage,
         limit: LIMIT,
-        showAll: true,
         search: state.name.trim() || undefined,
         size: state.size.trim() || undefined,
         kind: 'carpet',
@@ -43,8 +43,27 @@ export default function YangiGilamlarPage() {
   };
 
   useEffect(() => {
-    void loadCarpets(appliedFilters, 1);
+    suppressAutoSearchRef.current = true;
+    const init = async () => {
+      await loadCarpets(appliedFilters, 1);
+      suppressAutoSearchRef.current = false;
+    };
+    void init();
   }, []);
+
+  useEffect(() => {
+    if (suppressAutoSearchRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      const nextFilters = { ...filters };
+      setAppliedFilters(nextFilters);
+      void loadCarpets(nextFilters, 1);
+    }, 450);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [filters]);
 
   const resultText = loading
     ? 'Yuklanmoqda...'
@@ -64,9 +83,6 @@ export default function YangiGilamlarPage() {
         className="panel grid grid-cols-1 gap-4 p-4 md:grid-cols-6"
         onSubmit={(event) => {
           event.preventDefault();
-          const nextFilters = { ...filters };
-          setAppliedFilters(nextFilters);
-          void loadCarpets(nextFilters, 1);
         }}
       >
         <input
@@ -84,16 +100,12 @@ export default function YangiGilamlarPage() {
           className="input-field md:col-span-2"
         />
         <div className="flex gap-3 md:col-span-1">
-          <button type="submit" className="btn-primary flex-1 py-3 text-xs uppercase tracking-widest">
-            Qidirish
-          </button>
           <button
             type="button"
             onClick={() => {
               const cleared = { name: '', size: '' };
               setFilters(cleared);
               setAppliedFilters(cleared);
-              void loadCarpets(cleared, 1);
             }}
             className="btn-secondary flex-1 py-3 text-xs uppercase tracking-widest"
           >

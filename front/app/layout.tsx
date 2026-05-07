@@ -6,6 +6,7 @@ import AuthSessionGuard from '@/components/AuthSessionGuard';
 import ClientErrorBoundary from '@/components/ClientErrorBoundary';
 import PageLoader from '@/components/PageLoader';
 import PageTransitionWrapper from '@/components/PageTransitionWrapper';
+import ToastContainer from '@/components/ui/Toast';
 import '@/styles/globals.css';
 
 export const metadata: Metadata = {
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <PageLoader />
         </Suspense>
         <AuthSessionGuard />
+        <ToastContainer />
         <ClientErrorBoundary>
           <Navbar />
           <main className="min-h-[calc(100vh-180px)] overflow-x-hidden">

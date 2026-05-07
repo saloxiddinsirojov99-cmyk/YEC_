@@ -5,24 +5,51 @@ import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 import { getErrorMessage } from '@/services/api';
 import { getGoogleLoginUrl, login, saveTokens } from '@/services/auth.service';
+import { formatPhoneNumber, normalizePhoneNumber } from '@/utils/format';
 
 export default function LoginPage() {
   const router = useRouter();
+  const [mode, setMode] = useState<'phone' | 'email'>('phone');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('+998');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const googleLoginUrl = getGoogleLoginUrl();
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
+  const handlePhoneChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setPhone(formatPhoneNumber(event.target.value));
+  };
+
+  const submitEmail = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     try {
       setLoading(true);
       setError('');
 
-      const response = await login({ email, password });
+      const response = await login({ email: email.trim().toLowerCase(), password });
+      saveTokens(response.accessToken, response.refreshToken);
+      router.push('/profile');
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitPhone = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    try {
+      setLoading(true);
+      setError('');
+
+      const response = await login({
+        email: normalizePhoneNumber(phone),
+        password,
+      });
       saveTokens(response.accessToken, response.refreshToken);
       router.push('/profile');
     } catch (err) {
@@ -36,81 +63,179 @@ export default function LoginPage() {
     <div className="section-shell py-10">
       <div className="mx-auto max-w-md rounded-2xl border border-black/5 bg-white p-6 shadow-soft">
         <h1 className="font-serif text-4xl text-ink">Kirish</h1>
-        <p className="mt-2 text-sm text-ink/70">Email va parolingiz bilan tizimga kiring.</p>
+        <p className="mt-2 text-sm text-ink/70">
+          {mode === 'phone'
+            ? "Telefon raqam va parol bilan tizimga kiring."
+            : 'Email va parol bilan tizimga kiring.'}
+        </p>
 
-        <form onSubmit={submit} className="mt-8 space-y-5">
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="input-field"
-            required
-          />
-          <div className="relative">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-widest text-ink/40">Parol</span>
-              <Link
-                href="/forgot-password"
-                className="text-[10px] font-bold uppercase tracking-widest text-primary hover:underline"
-              >
-                Parolni unutdingizmi?
-              </Link>
-            </div>
+        {mode === 'phone' ? (
+          <form onSubmit={submitPhone} className="mt-8 space-y-5">
             <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="Parol"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="input-field pr-10"
+              type="text"
+              inputMode="numeric"
+              autoComplete="tel-national"
+              pattern="[0-9+\\- ]*"
+              placeholder="+998 90 123 45 67"
+              value={phone}
+              onChange={handlePhoneChange}
+              maxLength={17}
+              className="input-field font-mono tracking-wider"
               required
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/40 transition-colors hover:text-primary focus:outline-none"
-              aria-label={showPassword ? 'Parolni yashirish' : 'Parolni ko\'rsatish'}
-            >
-              {showPassword ? (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+            <div className="relative">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-widest text-ink/40">Parol</span>
+                <Link
+                  href="/forgot-password?mode=phone"
+                  className="text-[10px] font-bold uppercase tracking-widest text-primary hover:underline"
                 >
-                  <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
-                  <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
-                  <path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
-                  <line x1="2" y1="2" x2="22" y2="22" />
-                </svg>
-              ) : (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              )}
-            </button>
-          </div>
+                  Parolni unutdingizmi?
+                </Link>
+              </div>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                placeholder="Parol"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="input-field pr-10"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/40 transition-colors hover:text-primary focus:outline-none"
+                aria-label={showPassword ? 'Parolni yashirish' : "Parolni ko'rsatish"}
+              >
+                {showPassword ? (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+                    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+                    <path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+                    <line x1="2" y1="2" x2="22" y2="22" />
+                  </svg>
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                )}
+              </button>
+            </div>
 
-          <button type="submit" disabled={loading} className="btn-primary mt-4 w-full">
-            {loading ? 'Kirish...' : 'Kirish'}
-          </button>
-        </form>
+            <button type="submit" disabled={loading} className="btn-primary mt-4 flex w-full items-center justify-center gap-2">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.34 1.79.63 2.64a2 2 0 0 1-.45 2.11L8 9.73a16 16 0 0 0 6.27 6.27l1.26-1.28a2 2 0 0 1 2.11-.45c.85.29 1.74.51 2.64.63A2 2 0 0 1 22 16.92z" />
+              </svg>
+              {loading ? 'Kirish...' : 'Telefon orqali kirish'}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={submitEmail} className="mt-8 space-y-5">
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="input-field"
+              required
+            />
+            <div className="relative">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-widest text-ink/40">Parol</span>
+                <Link
+                  href="/forgot-password?mode=email"
+                  className="text-[10px] font-bold uppercase tracking-widest text-primary hover:underline"
+                >
+                  Parolni unutdingizmi?
+                </Link>
+              </div>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                placeholder="Parol"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                className="input-field pr-10"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/40 transition-colors hover:text-primary focus:outline-none"
+                aria-label={showPassword ? 'Parolni yashirish' : "Parolni ko'rsatish"}
+              >
+                {showPassword ? (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+                    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+                    <path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+                    <line x1="2" y1="2" x2="22" y2="22" />
+                  </svg>
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                )}
+              </button>
+            </div>
+
+            <button type="submit" disabled={loading} className="btn-primary mt-4 w-full">
+              {loading ? 'Kirish...' : 'Email orqali kirish'}
+            </button>
+          </form>
+        )}
 
         <div className="mt-6">
           <button
@@ -143,6 +268,41 @@ export default function LoginPage() {
               </svg>
             </span>
             Google orqali kirish
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setError('');
+              setMode((prev) => (prev === 'phone' ? 'email' : 'phone'));
+            }}
+            className="btn-secondary mt-3 flex w-full items-center justify-center gap-2"
+          >
+            {mode === 'phone' ? (
+              <>
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-current text-xs font-bold">
+                  @
+                </span>
+                Email orqali kirish
+              </>
+            ) : (
+              <>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.34 1.79.63 2.64a2 2 0 0 1-.45 2.11L8 9.73a16 16 0 0 0 6.27 6.27l1.26-1.28a2 2 0 0 1 2.11-.45c.85.29 1.74.51 2.64.63A2 2 0 0 1 22 16.92z" />
+                </svg>
+                Telefon orqali kirish
+              </>
+            )}
           </button>
         </div>
 
