@@ -2,13 +2,14 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Circle, Filter, Search, Sparkles } from 'lucide-react';
+import { Circle, Filter, Search, Sparkles, SlidersHorizontal, ArrowUpDown } from 'lucide-react';
 import CarpetList from '@/components/CarpetList';
 import FilterPanel, { type CarpetFiltersState } from '@/components/FilterPanel';
 import Pagination from '@/components/Pagination';
 import { getCarpets, getCategories } from '@/services/carpet.service';
 import { getErrorMessage } from '@/services/api';
 import type { Carpet, Category } from '@/types/carpet';
+import { SectionReveal } from '@/components/ui/animation-wrapper';
 
 const isPrayerMatCategory = (name?: string) =>
   (name ?? '').toLowerCase().includes('joynamoz');
@@ -56,29 +57,6 @@ function CarpetsContent() {
   const [limitReady, setLimitReady] = useState(false);
   const suppressAutoSearchRef = useRef(true);
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) {
-      setLimitReady(true);
-      return;
-    }
-
-    const mq = window.matchMedia(MOBILE_MEDIA_QUERY);
-    const apply = () => setLimit(mq.matches ? MOBILE_LIMIT : DESKTOP_LIMIT);
-    apply();
-    setLimitReady(true);
-
-    const onChange = () => apply();
-    if (typeof mq.addEventListener === 'function') {
-      mq.addEventListener('change', onChange);
-      return () => mq.removeEventListener('change', onChange);
-    }
-
-    (mq as unknown as { addListener?: (cb: () => void) => void }).addListener?.(onChange);
-    return () => {
-      (mq as unknown as { removeListener?: (cb: () => void) => void }).removeListener?.(onChange);
-    };
-  }, []);
-
   const visibleCategories = useMemo(() => {
     if (filters.kind === 'oval') {
       return categories.filter((category) => isOvalCategory(category.name));
@@ -100,12 +78,10 @@ function CarpetsContent() {
       append ? setLoadingMore(true) : setLoading(true);
       setError('');
 
-      const searchValue = state.search || undefined;
-
       const res = await getCarpets({
         page: targetPage,
         limit,
-        search: searchValue,
+        search: state.search || undefined,
         categoryId: state.categoryId || undefined,
         minPrice: state.minPrice ? Number(state.minPrice) : undefined,
         maxPrice: state.maxPrice ? Number(state.maxPrice) : undefined,
@@ -125,13 +101,28 @@ function CarpetsContent() {
   };
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) {
+      setLimitReady(true);
+      return;
+    }
+    const mq = window.matchMedia(MOBILE_MEDIA_QUERY);
+    const apply = () => setLimit(mq.matches ? MOBILE_LIMIT : DESKTOP_LIMIT);
+    apply();
+    setLimitReady(true);
+    const onChange = () => apply();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  useEffect(() => {
     if (!limitReady) return;
 
-    suppressAutoSearchRef.current = true;
-    const load = async () => {
+    const init = async () => {
       try {
         setLoading(true);
-        setError('');
+        const categoryRes = await getCategories();
+        setCategories(categoryRes);
+
         const nextFilters: CarpetFiltersState = {
           kind: initialKind,
           search: sanitizedSearch,
@@ -141,41 +132,23 @@ function CarpetsContent() {
           size: '',
           material: '',
         };
-        const categoryRes = await getCategories();
-        const selectedCategory = categoryRes.find(
-          (category) => category.id === nextFilters.categoryId,
-        );
-        if (
-          selectedCategory &&
-          isOvalCategory(selectedCategory.name) &&
-          nextFilters.kind !== 'oval'
-        ) {
-          nextFilters.kind = 'oval';
-        }
 
-        const carpetRes = await getCarpets({ 
-          page: 1,
-          limit,
-          search: nextFilters.search || undefined,
-          categoryId: nextFilters.categoryId || undefined,
-          kind: nextFilters.kind,
-        });
-        const nextItems = carpetRes.items ?? [];
         setFilters(nextFilters);
         setAppliedFilters(nextFilters);
-        setCarpets(nextItems);
-        setCategories(categoryRes);
-        setTotal(carpetRes.meta?.total ?? nextItems.length);
-        setPage(1);
+        
+        await loadCarpets(nextFilters, 1);
+        
+        window.setTimeout(() => {
+          suppressAutoSearchRef.current = false;
+        }, 100);
       } catch (err) {
         setError(getErrorMessage(err));
       } finally {
         setLoading(false);
-        suppressAutoSearchRef.current = false;
       }
     };
 
-    void load();
+    void init();
   }, [initialCatId, limit, limitReady, initialKind, sanitizedSearch]);
 
   useEffect(() => {
@@ -184,151 +157,98 @@ function CarpetsContent() {
     const timer = window.setTimeout(() => {
       setAppliedFilters(filters);
       void loadCarpets(filters, 1, false);
-    }, 450);
+    }, 600);
 
-    return () => {
-      window.clearTimeout(timer);
-    };
+    return () => window.clearTimeout(timer);
   }, [filters, limitReady]);
 
-  const resultText = useMemo(() => {
-    const kindLabel =
-      filters.kind === 'oval'
-        ? 'oval gilam'
-        : filters.kind === 'prayer'
-          ? 'joynamoz'
-          : 'gilam';
-    if (carpets.length === 0) return `${kindLabel.charAt(0).toUpperCase() + kindLabel.slice(1)} topilmadi`;
-    const totalCount = total > 0 ? total : carpets.length;
-    return `${totalCount} ta ${kindLabel} topildi`;
-  }, [carpets.length, filters.kind, total]);
-  const totalCount = total > 0 ? total : carpets.length;
-
-  const heroContent = useMemo(() => {
-    if (filters.kind === 'oval') {
-      return {
-        variant: 'catalog-hero--oval',
-        badge: 'Oval tanlov',
-        title: 'Oval gilam qidiruvi',
-        description: "Oval shakldagi gilamlarni tur, narx va o'lcham bo'yicha tez filtrlab toping.",
-        countLabel: 'ta oval gilam',
-      };
-    }
-
-    if (filters.kind === 'prayer') {
-      return {
-        variant: 'catalog-hero--joy',
-        badge: 'Joynamoz qidiruvi',
-        title: 'Joynamoz qidiruvi',
-        description:
-          "Joynamozlarni nomi, turkumi va o'lchami bo'yicha saralab, kerakli variantni darhol toping.",
-        countLabel: 'ta joynamoz',
-      };
-    }
-
-    return {
-      variant: 'catalog-hero--search',
-      badge: 'Katalog qidiruvi',
-      title: 'Gilam qidiruvi',
-      description:
-        "Tur, narx, material va o'lcham bo'yicha filtr qo'yib, kerakli gilamni bir joyda tanlang.",
-      countLabel: 'ta gilam',
-    };
+  const heroTheme = useMemo(() => {
+    if (filters.kind === 'oval') return { bg: 'from-fuchsia-600 to-purple-800', accent: 'text-fuchsia-200' };
+    if (filters.kind === 'prayer') return { bg: 'from-emerald-600 to-teal-800', accent: 'text-emerald-200' };
+    return { bg: 'from-sky-600 to-blue-800', accent: 'text-sky-200' };
   }, [filters.kind]);
 
   return (
-    <div className="section-shell space-y-6 py-8">
-      <section className={`catalog-hero ${heroContent.variant} fade-up px-6 py-8 md:px-10 md:py-11`}>
-        <div className="pointer-events-none absolute inset-0">
-          <div className="catalog-hero-float absolute left-[10%] top-[80%] text-sky-200/75 [animation-delay:0ms]">
-            <Sparkles className="h-5 w-5" />
-          </div>
-          <div className="catalog-hero-float absolute left-[50%] top-[72%] text-cyan-200/80 [animation-delay:700ms]">
-            <Search className="h-4 w-4" />
-          </div>
-          <div className="catalog-hero-float absolute left-[79%] top-[76%] text-blue-100/80 [animation-delay:1200ms]">
-            <Circle className="h-5 w-5 fill-current" />
-          </div>
+    <div className="space-y-10 pb-20">
+      {/* Dynamic Thematic Hero */}
+      <section className={`relative overflow-hidden bg-gradient-to-br ${heroTheme.bg} py-16 md:py-24`}>
+        <div className="pointer-events-none absolute inset-0 opacity-20">
+           <div className="absolute top-0 left-0 h-full w-full bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.2),transparent_70%)]" />
+           <div className="absolute top-[10%] right-[10%] animate-pulse">
+              <Sparkles className="h-12 w-12 text-white" />
+           </div>
         </div>
 
-        <div className="relative z-10 grid items-center gap-7 md:grid-cols-[1fr_auto]">
-          <div className="space-y-4">
-            <p className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-1.5 text-[11px] font-black uppercase tracking-[0.2em] text-white/90 backdrop-blur-md">
-              <Sparkles className="h-3.5 w-3.5 text-sky-200" />
-              {heroContent.badge}
-            </p>
-            <h1 className="font-serif text-4xl text-white md:text-6xl">{heroContent.title}</h1>
-            <p className="max-w-2xl text-sm leading-relaxed text-white/85 md:text-base">
-              {heroContent.description}
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <div className="inline-flex items-center gap-2 rounded-full border border-sky-100/35 bg-sky-500/20 px-4 py-2 text-sm font-bold text-white backdrop-blur-md">
-                <Filter className="h-4 w-4 text-sky-200" />
-                {loading ? 'Yuklanmoqda...' : `${totalCount} ${heroContent.countLabel}`}
-              </div>
-              <a
-                href="#carpet-filter-panel"
-                className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/15 px-4 py-2 text-sm font-bold text-white transition-all hover:-translate-y-0.5 hover:bg-white/25"
-              >
-                Filtrlashga o&apos;tish
-              </a>
+        <div className="section-shell relative z-10">
+          <SectionReveal animation="slide-right" className="space-y-8">
+            <div className={`inline-flex items-center gap-3 rounded-full border border-white/20 bg-black/10 px-6 py-2 text-xs font-black uppercase tracking-[0.3em] ${heroTheme.accent} backdrop-blur-xl`}>
+               <Search className="h-4 w-4" />
+               Aqlli qidiruv tizimi
             </div>
-          </div>
+            
+            <h1 className="font-serif text-5xl font-bold text-white md:text-7xl lg:text-8xl">
+              {filters.kind === 'oval' ? 'Oval Gilamlar' : filters.kind === 'prayer' ? 'Joynamozlar' : 'Gilamlar'}
+            </h1>
+            
+            <p className="max-w-2xl text-lg text-white/80 md:text-xl">
+              Uyingiz uchun eng mos dizaynni toping. Bizning keng qamrovli 
+              katalogimizda har qanday ta'bga mos mahsulot mavjud.
+            </p>
 
-          <div className="hidden items-center md:flex">
-            <div className="relative h-44 w-44 rounded-full border border-white/25 bg-white/10 backdrop-blur-xl">
-              <div className="absolute inset-5 animate-spin rounded-full border border-white/20 border-t-sky-200/80 [animation-duration:6.4s]" />
-              <div className="absolute inset-9 animate-spin rounded-full border border-cyan-100/20 border-b-blue-200/80 [animation-duration:4.8s] [animation-direction:reverse]" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Search className="h-12 w-12 text-sky-100" />
-              </div>
+            <div className="flex flex-wrap gap-4">
+               <div className="flex h-16 items-center gap-4 rounded-3xl bg-white/10 px-8 border border-white/20 backdrop-blur-md">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-blue-600">
+                     <SlidersHorizontal className="h-4 w-4" />
+                  </div>
+                  <span className="text-xl font-bold text-white">{loading ? '...' : total} ta mahsulot</span>
+               </div>
             </div>
-          </div>
+          </SectionReveal>
         </div>
       </section>
 
-      <div id="carpet-filter-panel" className="fade-up">
-        <FilterPanel
-          categories={visibleCategories}
-          filters={filters}
-          onChange={setFilters}
-          onReset={() => {
-            const resetFilters: CarpetFiltersState = {
-              kind: 'carpet',
-              search: '',
-              categoryId: '',
-              minPrice: '',
-              maxPrice: '',
-              size: '',
-              material: '',
-            };
-            setFilters(resetFilters);
-            setAppliedFilters(resetFilters);
-          }}
-        />
+      <div className="section-shell -mt-12 relative z-20 space-y-12">
+        <SectionReveal animation="fade-up">
+           <div className="rounded-[2.5rem] bg-white p-6 shadow-[0_32px_64px_rgba(0,0,0,0.08)] md:p-10 border border-slate-100">
+              <FilterPanel
+                categories={visibleCategories}
+                filters={filters}
+                onChange={setFilters}
+                onReset={() => {
+                  setFilters(initialFilters);
+                  setAppliedFilters(initialFilters);
+                }}
+              />
+           </div>
+        </SectionReveal>
+
+        <div className="space-y-8">
+           <div className="flex items-center justify-between border-b border-slate-100 pb-8">
+              <div className="flex items-center gap-4">
+                 <h2 className="font-serif text-4xl font-bold text-slate-900">
+                   {filters.search ? `'${filters.search}' natijalari` : 'Barcha mahsulotlar'}
+                 </h2>
+                 {!loading && <span className="rounded-full bg-slate-100 px-4 py-1.5 text-sm font-bold text-slate-500">{total} ta</span>}
+              </div>
+              <div className="flex items-center gap-2 text-slate-400">
+                 <ArrowUpDown className="h-5 w-5" />
+                 <span className="text-sm font-medium">Saralangan</span>
+              </div>
+           </div>
+
+           <CarpetList carpets={carpets} loading={loading} emptyText="Afsuski, ushbu filtrlar bo'yicha mahsulot topilmadi." />
+
+           <div className="flex justify-center pt-10">
+              <Pagination
+                page={page}
+                limit={limit}
+                total={total}
+                loading={loadingMore}
+                onPageChange={(newPage) => void loadCarpets(appliedFilters, newPage, false)}
+              />
+           </div>
+        </div>
       </div>
-
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-ink/70">{loading ? 'Yuklanmoqda...' : resultText}</p>
-      </div>
-
-      <CarpetList
-        carpets={carpets}
-        loading={loading}
-        emptyText={filters.kind === 'oval' ? 'Oval gilam topilmadi.' : 'Gilam topilmadi.'}
-      />
-
-      <Pagination
-        page={page}
-        limit={limit}
-        total={total}
-        loading={loadingMore}
-        onPageChange={(newPage) => void loadCarpets(appliedFilters, newPage, false)}
-      />
-
-      {error ? (
-        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
-      ) : null}
     </div>
   );
 }
@@ -336,13 +256,11 @@ function CarpetsContent() {
 export default function CarpetsPage() {
   return (
     <Suspense fallback={
-      <div className="section-shell flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      <div className="section-shell flex h-96 items-center justify-center">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
       </div>
     }>
       <CarpetsContent />
     </Suspense>
   );
 }
-
-

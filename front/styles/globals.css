@@ -236,18 +236,14 @@
     to { transform: rotate(-360deg); }
   }
 
-  @keyframes logo-3d-rtl {
-    0% {
-      transform: perspective(1000px) rotateY(0deg);
-    }
-    100% {
-      transform: perspective(1000px) rotateY(-360deg);
-    }
+  @keyframes logo-bounce {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-15px) scale(1.02); }
   }
 
-  @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-10px); }
+  @keyframes dot-flash {
+    0%, 100% { opacity: 0.2; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.2); }
   }
 
   .animate-spin-reverse {
@@ -255,10 +251,12 @@
     transform-origin: center;
   }
 
-  .animate-logo-3d-rtl {
-    animation: logo-3d-rtl 6s linear infinite; /* Slower, majestic 3D rotation */
-    transform-style: preserve-3d;
-    backface-visibility: hidden;
+  .animate-logo-bounce {
+    animation: logo-bounce 2s ease-in-out infinite;
+  }
+
+  .animate-dot-flash {
+    animation: dot-flash 1.4s infinite;
   }
 
   .nav-scroll-smooth {
@@ -296,5 +294,44 @@
   }
   .scrollbar-premium::-webkit-scrollbar-thumb:hover {
     background: rgba(0, 180, 255, 0.7);
+  }
+
+  .animate-progress-loading {
+    animation: progress-loading 1.8s ease-in-out infinite;
+  }
+
+  @keyframes progress-loading {
+    0% { transform: translateX(-100%); }
+    50% { transform: translateX(0); }
+    100% { transform: translateX(100%); }
+  }
+
+  /* Silky Page Transitions */
+  .page-transition {
+    animation: pageFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    will-change: transform, opacity;
+  }
+
+  @keyframes pageFadeIn {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes weaving {
+    0% { clip-path: inset(100% 0 0 0); opacity: 0; }
+    10% { opacity: 1; }
+    80% { clip-path: inset(0% 0 0 0); opacity: 1; }
+    90% { opacity: 0; }
+    100% { clip-path: inset(0% 0 0 0); opacity: 0; }
+  }
+
+  .animate-weave {
+    animation: weaving 7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
 }

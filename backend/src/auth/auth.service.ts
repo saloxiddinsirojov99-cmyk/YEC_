@@ -11,6 +11,7 @@ import { OtpPurpose, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { MailService } from '../mail/mail.service';
+import * as compression from 'compression';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
@@ -133,6 +134,8 @@ export class AuthService {
       data: { usedAt: new Date() },
     });
 
+    const tokens = await this.generateTokens(createdUser);
+
     return {
       message: "Ro'yxatdan o'tish muvaffaqiyatli yakunlandi.",
       user: {
@@ -142,6 +145,7 @@ export class AuthService {
         phone: createdUser.phone,
         role: createdUser.role,
       },
+      ...tokens,
     };
   }
 
@@ -156,10 +160,10 @@ export class AuthService {
       role: string;
     };
   }> {
-    const user = await this.usersService.findByEmail(dto.email);
+    const user = await this.usersService.findByCredential(dto.email);
 
     if (!user) {
-      throw new UnauthorizedException("Email yoki parol noto'g'ri.");
+      throw new UnauthorizedException("Ma'lumotlar noto'g'ri.");
     }
 
     const isMatch = await bcrypt.compare(dto.password, user.password);
@@ -508,5 +512,19 @@ export class AuthService {
         expiresIn: this.getRefreshExpiresIn() as any,
       },
     );
+  }
+
+  private async generateTokens(user: any) {
+    const accessToken = await this.signAccessToken(
+      user.id,
+      user.email,
+      user.role,
+    );
+    const refreshToken = await this.signRefreshToken(
+      user.id,
+      user.email,
+      user.role,
+    );
+    return { accessToken, refreshToken };
   }
 }

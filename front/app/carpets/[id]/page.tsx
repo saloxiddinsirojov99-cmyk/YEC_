@@ -408,30 +408,33 @@ export default function CarpetDetailPage() {
 
       {isZoomOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-8"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 transition-all duration-300"
           onClick={() => {
             setIsZoomOpen(false);
             setZoomLevel(1);
           }}
         >
           <div
-            className="relative max-h-[90vh] max-w-[92vw]"
+            className="relative flex h-full w-full flex-col items-center justify-center p-2 sm:p-8"
             onClick={(event) => event.stopPropagation()}
           >
             <button
               type="button"
-              className="absolute -top-10 right-0 rounded-full bg-white/90 px-4 py-1 text-xs font-semibold text-ink shadow"
+              className="absolute right-4 top-4 z-10 rounded-full bg-white/10 p-3 text-white backdrop-blur-xl transition-all hover:bg-white/20 active:scale-90"
               onClick={() => {
                 setIsZoomOpen(false);
                 setZoomLevel(1);
               }}
             >
-              Yopish
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
             </button>
+
             <div
-              className="overflow-hidden rounded-2xl border border-white/20 bg-black/30 p-2 shadow-2xl"
+              className="relative flex h-full w-full items-center justify-center overflow-hidden"
               onMouseMove={(event) => {
-                if (zoomLevel === 1) return;
+                if (zoomLevel === 1 || isTouch) return;
                 const rect = event.currentTarget.getBoundingClientRect();
                 const x = ((event.clientX - rect.left) / rect.width) * 100;
                 const y = ((event.clientY - rect.top) / rect.height) * 100;
@@ -442,19 +445,22 @@ export default function CarpetDetailPage() {
               <img
                 src={zoomImage}
                 alt={`${carpet.name} zoom`}
-                className={`max-h-[85vh] max-w-[88vw] bg-white object-contain transition-transform duration-300 ${
+                className={`max-h-full max-w-full bg-white object-contain transition-transform duration-300 ${
                   zoomLevel > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'
                 }`}
                 style={{
                   transform: `scale(${zoomLevel})`,
                   transformOrigin: zoomOrigin,
                 }}
-                onClick={() => setZoomLevel((prev) => (prev === 1 ? 2 : 1))}
+                onClick={() => setZoomLevel((prev) => (prev === 1 ? 2.5 : 1))}
               />
             </div>
-            <p className="mt-3 text-center text-xs text-white/70">
-              Rasmga bosing: yaqinlashtirish yoki kichraytirish
-            </p>
+            
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+               <p className="rounded-full bg-black/40 px-4 py-1.5 text-xs font-bold text-white backdrop-blur-md">
+                 {zoomLevel > 1 ? 'Kichraytirish uchun bosing' : 'Yaqinlashtirish uchun bosing'}
+               </p>
+            </div>
           </div>
         </div>
       ) : null}

@@ -1,6 +1,6 @@
 import { OrderStatus } from '@prisma/client';
 import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateOrderStatusDto {
   @ApiPropertyOptional({ enum: OrderStatus, example: OrderStatus.ACCEPTED })
@@ -22,5 +22,11 @@ export class UpdateOrderStatusDto {
   @ApiPropertyOptional({ example: 'Ulov buzilgani sababli kelyapmiz' })
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   explanation?: string;
+
+  @ApiPropertyOptional({ example: 'courier-uuid-here' })
+  @IsOptional()
+  @IsString()
+  courierId?: string;
 }

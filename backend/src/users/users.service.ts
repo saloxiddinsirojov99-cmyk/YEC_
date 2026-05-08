@@ -13,7 +13,29 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { email } });
+    return this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+  }
+
+  async findByCredential(credential: string): Promise<User | null> {
+    const normalized = credential.trim();
+    // Try to find by email
+    const byEmail = await this.prisma.user.findUnique({ where: { email: normalized.toLowerCase() } });
+    if (byEmail) return byEmail;
+
+    // Try to find by phone
+    let phoneQuery = normalized;
+    if (/^\d+$/.test(phoneQuery)) {
+      phoneQuery = `+${phoneQuery}`;
+    }
+    
+    return this.prisma.user.findFirst({
+      where: {
+        phone: {
+          contains: phoneQuery,
+          mode: 'insensitive',
+        },
+      },
+    });
   }
 
   async findById(id: string): Promise<User> {

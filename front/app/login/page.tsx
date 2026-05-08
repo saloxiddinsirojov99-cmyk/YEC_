@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useRef, useState } from 'react';
 import { getErrorMessage } from '@/services/api';
-import { getGoogleLoginUrl, login, saveTokens } from '@/services/auth.service';
 import { formatPhoneNumber, normalizePhoneNumber } from '@/utils/format';
+import { toast } from '@/components/ui/Toast';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -27,13 +27,12 @@ export default function LoginPage() {
 
     try {
       setLoading(true);
-      setError('');
 
       const response = await login({ email: email.trim().toLowerCase(), password });
       saveTokens(response.accessToken, response.refreshToken);
       router.push('/profile');
     } catch (err) {
-      setError(getErrorMessage(err));
+      toast.error(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -44,7 +43,6 @@ export default function LoginPage() {
 
     try {
       setLoading(true);
-      setError('');
 
       const response = await login({
         email: normalizePhoneNumber(phone),
@@ -53,7 +51,7 @@ export default function LoginPage() {
       saveTokens(response.accessToken, response.refreshToken);
       router.push('/profile');
     } catch (err) {
-      setError(getErrorMessage(err));
+      toast.error(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -143,22 +141,8 @@ export default function LoginPage() {
               </button>
             </div>
 
-            <button type="submit" disabled={loading} className="btn-primary mt-4 flex w-full items-center justify-center gap-2">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.34 1.79.63 2.64a2 2 0 0 1-.45 2.11L8 9.73a16 16 0 0 0 6.27 6.27l1.26-1.28a2 2 0 0 1 2.11-.45c.85.29 1.74.51 2.64.63A2 2 0 0 1 22 16.92z" />
-              </svg>
-              {loading ? 'Kirish...' : 'Telefon orqali kirish'}
+            <button type="submit" disabled={loading} className="btn-primary mt-4 w-full">
+              {loading ? 'Kirish...' : 'Kirish'}
             </button>
           </form>
         ) : (
@@ -232,7 +216,7 @@ export default function LoginPage() {
             </div>
 
             <button type="submit" disabled={loading} className="btn-primary mt-4 w-full">
-              {loading ? 'Kirish...' : 'Email orqali kirish'}
+              {loading ? 'Kirish...' : 'Kirish'}
             </button>
           </form>
         )}
@@ -306,11 +290,7 @@ export default function LoginPage() {
           </button>
         </div>
 
-        {error ? (
-          <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
-          </p>
-        ) : null}
+
 
         <p className="mt-5 text-sm text-ink/70">
           Akkauntingiz yo&apos;qmi?{' '}

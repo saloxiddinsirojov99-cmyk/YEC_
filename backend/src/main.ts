@@ -16,6 +16,7 @@ import { TimeoutInterceptor } from './common/interceptors/timeout.interceptor';
 import { resolveUploadsDir } from './common/utils/uploads-path';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import compression from 'compression';
 
 const envCandidates = [
   join(process.cwd(), '.env'),
@@ -268,6 +269,7 @@ async function bootstrap() {
   });
   app.enableCors();
   app.useGlobalFilters(new HttpExceptionFilter());
+  app.use(compression());
   app.use(helmet());
   app.use(
     rateLimit({

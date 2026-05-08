@@ -27,9 +27,22 @@ export default function NikeStyleSlider({ carpets }: NikeStyleSliderProps) {
   const safeCarpets = carpets && carpets.length > 0 ? carpets : [];
   const currentCarpet = safeCarpets[currentIndex];
   
+  // Random image selection within the current carpet's gallery
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  
+  useEffect(() => {
+    if (currentCarpet?.images?.length > 1) {
+      // Pick a random image each time the slide becomes active
+      const newIndex = Math.floor(Math.random() * currentCarpet.images.length);
+      setActiveImageIndex(newIndex);
+    } else {
+      setActiveImageIndex(0);
+    }
+  }, [currentIndex, currentCarpet]);
+
   const fallbackImg = '/images/hero-carpet-green.png'; 
-  const currentImgUrl = currentCarpet?.images?.[0] 
-    ? (getImageUrl(currentCarpet.images[0]) ?? fallbackImg)
+  const currentImgUrl = currentCarpet?.images?.[activeImageIndex] 
+    ? (getImageUrl(currentCarpet.images[activeImageIndex]) ?? fallbackImg)
     : fallbackImg;
 
   const catName = (currentCarpet?.category?.name || currentCarpet?.name || '').toLowerCase();
@@ -128,18 +141,20 @@ export default function NikeStyleSlider({ carpets }: NikeStyleSliderProps) {
     >
       {/* Light gradient for dynamic background depth (zero lag, pure css) */}
       <div 
-        className="absolute -top-[50%] -left-[20%] w-[120%] h-[150%] pointer-events-none z-0" 
-        style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 65%)' }} 
+        className="absolute -top-[50%] -left-[20%] w-[120%] h-[150%] pointer-events-none z-0 opacity-40 mix-blend-soft-light" 
+        style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 70%)' }} 
       />
-      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/50 to-transparent pointer-events-none z-0" />
+      <div 
+        className="absolute -bottom-[30%] -right-[10%] w-[80%] h-[100%] pointer-events-none z-0 opacity-20" 
+        style={{ background: 'radial-gradient(circle, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0) 60%)' }} 
+      />
+      <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent pointer-events-none z-0" />
 
       {/* Chap tomondagi yozuvlar orqasiga YEC logotipi (Watermark) surat bilan */}
       <div className="absolute top-0 bottom-0 left-[-5%] md:left-[0%] w-full md:w-[55%] z-0 flex items-center justify-center pointer-events-none select-none">
-        <img 
-          src="/logo-transparent.png" 
-          alt="YEC Watermark" 
-          className="w-[90%] md:w-[100%] max-w-none opacity-[0.08] rotate-[18deg] transform object-contain" 
-        />
+        <div className="w-[90%] md:w-[100%] max-w-none opacity-[0.04] rotate-[18deg] transform flex items-center justify-center">
+           <h3 className="text-[12vw] font-black text-white whitespace-nowrap">YEC MARKET</h3>
+        </div>
       </div>
 
       <div className="relative z-10 w-full max-w-[1280px] mx-auto grid min-h-[300px] md:min-h-[400px] items-center gap-6 md:gap-8 px-6 lg:px-10 py-4 md:py-6 lg:grid-cols-2">

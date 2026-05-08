@@ -45,17 +45,37 @@ export default function RegisterPage() {
   const [smsResending, setSmsResending] = useState(false);
 
   const [error, setError] = useState('');
+  const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const googleLoginUrl = getGoogleLoginUrl();
+
+  const showError = (message: string) => {
+    if (errorTimeoutRef.current) {
+      clearTimeout(errorTimeoutRef.current);
+    }
+    setError(message);
+    // Duration: 7s base + 1s per 50 chars, max 15s
+    const duration = Math.min(15000, 7000 + Math.floor(message.length / 50) * 1000);
+    errorTimeoutRef.current = setTimeout(() => setError(''), duration);
+  };
 
   const handlePhoneChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setPhone(formatPhoneNumber(event.target.value));
+  };
+
+  const handleNameChange = (value: string, setter: (v: string) => void) => {
+    // No spaces, no symbols, no numbers. Only letters (Latin and Cyrillic).
+    let sanitized = value.replace(/[^a-zA-Zа-яА-ЯёЁқҚғҒҳҲўЎ]/g, '');
+    if (sanitized.length > 0) {
+      sanitized = sanitized.charAt(0).toUpperCase() + sanitized.slice(1);
+    }
+    setter(sanitized);
   };
 
   const requestEmailOtp = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
       setEmailLoading(true);
-      setError('');
+      showError('');
       setEmailMessage('');
       const response = await requestRegisterOtp({
         firstName,
@@ -68,7 +88,7 @@ export default function RegisterPage() {
       setEmailMessage(response.message);
       setEmailStep('verify');
     } catch (err) {
-      setError(getErrorMessage(err));
+      showError(getErrorMessage(err));
     } finally {
       setEmailLoading(false);
     }
@@ -78,13 +98,13 @@ export default function RegisterPage() {
     event.preventDefault();
     try {
       setEmailLoading(true);
-      setError('');
+      showError('');
       setEmailMessage('');
       const response = await verifyRegisterOtp({ email, otp: emailOtp });
       setEmailMessage(response.message);
       setEmailStep('done');
     } catch (err) {
-      setError(getErrorMessage(err));
+      showError(getErrorMessage(err));
     } finally {
       setEmailLoading(false);
     }
@@ -92,12 +112,12 @@ export default function RegisterPage() {
 
   const resendEmailOtp = async () => {
     if (!email) {
-      setError('Email manzili kiritilmagan.');
+      showError('Email manzili kiritilmagan.');
       return;
     }
     try {
       setEmailResending(true);
-      setError('');
+      showError('');
       setEmailMessage('');
       const response = await requestRegisterOtp({
         firstName,
@@ -109,7 +129,7 @@ export default function RegisterPage() {
       setEmailDevOtpCode(response.devOtpCode ?? '');
       setEmailMessage(response.message || "Tasdiqlash kodi qayta yuborildi.");
     } catch (err) {
-      setError(getErrorMessage(err));
+      showError(getErrorMessage(err));
     } finally {
       setEmailResending(false);
     }
@@ -119,7 +139,7 @@ export default function RegisterPage() {
     event.preventDefault();
     try {
       setSmsLoading(true);
-      setError('');
+      showError('');
       setSmsMessage('');
       const response = await requestPhoneOtp({
         phone: normalizePhoneNumber(phone),
@@ -130,7 +150,7 @@ export default function RegisterPage() {
       setSmsMessage(response.message);
       setSmsStep('verify');
     } catch (err) {
-      setError(getErrorMessage(err));
+      showError(getErrorMessage(err));
     } finally {
       setSmsLoading(false);
     }
@@ -140,18 +160,23 @@ export default function RegisterPage() {
     event.preventDefault();
     try {
       setSmsLoading(true);
-      setError('');
-      const response = await verifyPhoneOtp({
+      showError('');
+      const res = await verifyPhoneOtp({
         phone: normalizePhoneNumber(phone),
         otp: smsOtp,
         firstName: firstName.trim() || undefined,
         lastName: lastName.trim() || undefined,
         password: smsPassword,
       });
-      saveTokens(response.accessToken, response.refreshToken);
-      router.push('/profile');
+      
+      if (res.accessToken) {
+        saveTokens(res.accessToken, res.refreshToken);
+        router.push('/profile');
+      } else {
+        router.push('/login?registered=1');
+      }
     } catch (err) {
-      setError(getErrorMessage(err));
+      showError(getErrorMessage(err));
     } finally {
       setSmsLoading(false);
     }
@@ -235,14 +260,14 @@ export default function RegisterPage() {
                       type="text"
                       placeholder="Ism"
                       value={firstName}
-                      onChange={(event) => setFirstName(event.target.value)}
+                      onChange={(event) => handleNameChange(event.target.value, setFirstName)}
                       className="input-field"
                     />
                     <input
                       type="text"
                       placeholder="Familiya"
                       value={lastName}
-                      onChange={(event) => setLastName(event.target.value)}
+                      onChange={(event) => handleNameChange(event.target.value, setLastName)}
                       className="input-field"
                     />
                   </div>
@@ -342,7 +367,7 @@ export default function RegisterPage() {
                         type="text"
                         placeholder="Ism"
                         value={firstName}
-                        onChange={(event) => setFirstName(event.target.value)}
+                        onChange={(event) => handleNameChange(event.target.value, setFirstName)}
                         className="input-field"
                         required
                       />
@@ -350,7 +375,7 @@ export default function RegisterPage() {
                         type="text"
                         placeholder="Familiya"
                         value={lastName}
-                        onChange={(event) => setLastName(event.target.value)}
+                        onChange={(event) => handleNameChange(event.target.value, setLastName)}
                         className="input-field"
                         required
                       />
@@ -481,11 +506,7 @@ export default function RegisterPage() {
             </button>
           </div>
 
-          {error ? (
-            <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
-            </p>
-          ) : null}
+
 
           <p className="mt-6 text-center text-sm text-ink/70">
             Akkauntingiz bormi?{' '}

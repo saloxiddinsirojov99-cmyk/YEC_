@@ -682,72 +682,7 @@ export class TelegramUpdate {
 
       if (this.pendingCourierApprovals.has(chatId)) {
         await this.prisma.user.update({
-          where: { id: user.id },
-          data: {
-            role: UserRole.COURIER,
-            telegramChatId: chatId,
-            telegramUsername: username || null,
-          },
 
-  @Start()
-  async onStart(@Ctx() ctx: Context) {
-    const chatId = ctx.chat!.id.toString();
-    const username = ctx.from?.username || '';
-    const firstName = ctx.from?.first_name || '';
-
-    const text = (ctx as any).message?.text || '';
-    if (text.startsWith('/start user_join_')) {
-      const token = text.replace('/start user_join_', '').trim();
-      const userId = verifyTelegramUserJoinToken(
-        token,
-        this.getTelegramLinkSecret(),
-      );
-
-      if (!userId) {
-        await ctx.reply(
-          "❌ Bu biriktirish havolasi yaroqsiz yoki muddati o'tgan. Saytdan botga qayta kirib ko'ring.",
-        );
-        return;
-      }
-
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true, name: true, role: true },
-      });
-
-      if (!user) {
-        await ctx.reply(
-          "❌ Foydalanuvchi topilmadi. Iltimos, saytga qayta kiring va botga qayta ulaning.",
-        );
-        return;
-      }
-
-      await this.prisma.$transaction(async (tx) => {
-        await tx.user.updateMany({
-          where: { id: { not: user.id }, telegramChatId: chatId },
-          data: { telegramChatId: null },
-        });
-
-        if (username) {
-          await tx.user.updateMany({
-            where: { id: { not: user.id }, telegramUsername: username },
-            data: { telegramUsername: null },
-          });
-        }
-
-        await tx.user.update({
-          where: { id: user.id },
-          data: {
-            telegramChatId: chatId,
-            telegramUsername: username || null,
-          },
-        });
-      });
-
-      let linkedRole = user.role;
-
-      if (this.pendingCourierApprovals.has(chatId)) {
-        await this.prisma.user.update({
           where: { id: user.id },
           data: {
             role: UserRole.COURIER,
@@ -755,6 +690,7 @@ export class TelegramUpdate {
             telegramUsername: username || null,
           },
         });
+
         this.pendingCourierApprovals.delete(chatId);
         linkedRole = UserRole.COURIER;
       }
@@ -2242,12 +2178,73 @@ export class TelegramUpdate {
         // Medium confidence match
         matchesToReturn = results.slice(0, 3);
         await ctx.reply(`O'xshash gilamlar topildi. Eng yaxshi natijalar:`);
-    if (from.username === this.DEFAULT_ADMIN) return true;
+      }
 
+      for (const res of matchesToReturn) {
+        const c = res.carpet;
+        const photo = this.resolveCarpetPhoto(res.imgPath);
+        const msg = `<b>${c.name}</b>\nNarxi: ${Number(c.price).toLocaleString()} so'm\nRazmer: ${c.size}\nKodi: ${c.designCode || c.code || 'N/A'}`;
+        const inlineKeyboard = {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🛒 Saytda ko\'rish', url: `https://yecmarket.uz/carpets/${c.id}` }]
+            ]
+          }
+        };
+
+        if (photo) {
+          await this.telegramService.sendPhoto(ctx.chat!.id.toString(), photo, msg, inlineKeyboard.reply_markup);
+        } else {
+          await ctx.reply(msg, { parse_mode: 'HTML', ...inlineKeyboard });
+        }
+      }
+    } catch (e) {
+      this.logger.error(`Error in onPhoto: ${e.message}`);
+      await ctx.reply(`Xatolik yuz berdi: ${e.message}`);
+    }
+  }
+
+  private async isSuperAdmin(ctx: Context): Promise<boolean> {
+    const from = ctx.from;
+    if (!from) return false;
+    if (from.username === this.DEFAULT_ADMIN) return true;
     const user = await this.prisma.user.findUnique({
       where: { telegramChatId: from.id.toString() },
     });
     return user?.role === UserRole.SUPERADMIN;
+  }
+
+  private async isAdmin(ctx: Context): Promise<boolean> {
+    const from = ctx.from;
+    if (!from) return false;
+    if (from.username === this.DEFAULT_ADMIN) return true;
+    const user = await this.prisma.user.findUnique({
+      where: { telegramChatId: from.id.toString() },
+    });
+    return user?.role === UserRole.ADMIN || user?.role === UserRole.SUPERADMIN;
+  }
+
+  private async isSeller(ctx: Context): Promise<boolean> {
+    const from = ctx.from;
+    if (!from) return false;
+    if (from.username === this.DEFAULT_ADMIN) return true;
+    const user = await this.prisma.user.findUnique({
+      where: { telegramChatId: from.id.toString() },
+    });
+    return (
+      user?.role === UserRole.SELLER ||
+      user?.role === UserRole.ADMIN ||
+      user?.role === UserRole.SUPERADMIN
+    );
+  }
+
+  private async isCourier(ctx: Context): Promise<boolean> {
+    const from = ctx.from;
+    if (!from) return false;
+    const user = await this.prisma.user.findUnique({
+      where: { telegramChatId: from.id.toString() },
+    });
+    return user?.role === UserRole.COURIER;
   }
 
   private resolveCarpetPhoto(
@@ -2267,8 +2264,7 @@ export class TelegramUpdate {
     if (withoutLeading.startsWith('images/')) {
       const local = this.resolveFrontPublicAsset(withoutLeading);
       if (local) return { source: local };
-
-      const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
+const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
       if (frontUrl) {
         return `${frontUrl}/${withoutLeading}`;
       }

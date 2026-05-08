@@ -24,9 +24,16 @@ export default function AuthSessionGuard() {
   const refreshing = useRef(false);
 
   useEffect(() => {
+    const THROTTLE_MS = 30000; // 30 seconds
+    let lastUpdate = 0;
+
     const updateActivity = () => {
+      const now = Date.now();
+      if (now - lastUpdate < THROTTLE_MS) return;
+      
       if (!getToken()) return;
-      setLastActive(Date.now());
+      setLastActive(now);
+      lastUpdate = now;
     };
 
     updateActivity();
@@ -101,7 +108,7 @@ export default function AuthSessionGuard() {
       }
     };
 
-    const interval = window.setInterval(tick, 5000);
+    const interval = window.setInterval(tick, 10000);
     void tick();
 
     return () => window.clearInterval(interval);

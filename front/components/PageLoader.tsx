@@ -19,7 +19,11 @@ export default function PageLoader() {
   const startLoading = () => {
     clearShowTimer();
     // Small delay prevents flicker on ultra-fast navigations
-    showTimerRef.current = setTimeout(() => setLoading(true), 150);
+    showTimerRef.current = setTimeout(() => {
+      setLoading(true);
+      // Safety auto-hide if navigation hangs
+      setTimeout(() => setLoading(false), 5000);
+    }, 50);
   };
 
   const stopLoading = () => {
@@ -64,13 +68,9 @@ export default function PageLoader() {
       startLoading();
     };
 
-    const onPopState = () => startLoading();
-
     document.addEventListener('click', onClick, true);
-    window.addEventListener('popstate', onPopState);
     return () => {
       document.removeEventListener('click', onClick, true);
-      window.removeEventListener('popstate', onPopState);
       clearShowTimer();
     };
   }, []);
@@ -84,20 +84,32 @@ export default function PageLoader() {
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-white/65 backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-white/70 backdrop-blur-md"
       role="status"
       aria-live="polite"
       aria-label="Yuklanmoqda"
     >
-      <div className="flex flex-col items-center gap-4">
-        <div className="relative inline-flex h-32 w-32 items-center justify-center bg-transparent">
+      <div className="flex flex-col items-center gap-6">
+        <div className="relative h-28 w-28 drop-shadow-2xl">
           <img
             src="/logo.png"
             alt="YEC Market"
-            className="h-full w-full object-contain animate-logo-3d-rtl"
+            className="h-full w-full object-contain animate-logo-bounce"
           />
         </div>
-        <p className="text-sm font-semibold text-ink/70">Yuklanmoqda...</p>
+        <div className="flex flex-col items-center gap-2">
+          <p className="text-lg font-bold tracking-tight text-ink">
+            Yuklanmoqda
+            <span className="inline-flex ml-1">
+              <span className="animate-dot-flash [animation-delay:0s]">.</span>
+              <span className="animate-dot-flash [animation-delay:0.2s]">.</span>
+              <span className="animate-dot-flash [animation-delay:0.4s]">.</span>
+            </span>
+          </p>
+          <div className="h-1 w-32 overflow-hidden rounded-full bg-black/5">
+            <div className="h-full w-full origin-left animate-progress-loading bg-primary" />
+          </div>
+        </div>
       </div>
     </div>
   );

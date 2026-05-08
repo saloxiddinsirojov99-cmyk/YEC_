@@ -559,6 +559,23 @@ export class CarpetsService {
     }
   }
 
+  async findLikedCarpets(userId: string) {
+    const likes = await this.prisma.carpetLike.findMany({
+      where: { userId },
+      include: {
+        carpet: {
+          include: { category: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return likes.map((like) => ({
+      ...like.carpet,
+      isLiked: true,
+    }));
+  }
+
   async update(id: string, dto: UpdateCarpetDto) {
     const existing = await this.prisma.carpet.findUnique({
       where: { id },

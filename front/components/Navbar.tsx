@@ -248,7 +248,7 @@ export default function Navbar() {
   };
 
   return (
-    <header className="glass-nav fixed top-0 left-0 right-0 z-50">
+    <header className="glass-nav sticky top-0 z-50 w-full">
       <div className="section-shell flex items-center gap-4 py-3 md:py-4">
         <a href="/" className="group -ml-1 flex items-center gap-3 sm:-ml-2 md:-ml-3">
           <div className="relative">

@@ -93,3 +93,8 @@ export async function getCollectionM2Price(name: string): Promise<CollectionM2Pr
   });
   return data;
 }
+
+export async function getLikedCarpets(): Promise<Carpet[]> {
+  const { data } = await api.get<Carpet[]>('/carpets/liked');
+  return data ?? [];
+}

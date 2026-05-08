@@ -44,6 +44,14 @@ export class CarpetsController {
     return this.carpetsService.findAll(query, req.user?.sub);
   }
 
+  @ApiOperation({ summary: 'Foydalanuvchi yoqtirgan gilamlar' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('liked')
+  getLikedCarpets(@Req() req: any) {
+    return this.carpetsService.findLikedCarpets(req.user.sub);
+  }
+
   @ApiOperation({ summary: 'Gilam kolleksiya nomlari ro`yxati (admin)' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)

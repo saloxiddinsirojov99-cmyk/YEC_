@@ -59,24 +59,24 @@ export default function ToastContainer() {
             exit={{ opacity: 0, x: 20, scale: 0.95 }}
             className={`pointer-events-auto flex items-center justify-between rounded-2xl border p-4 shadow-2xl backdrop-blur-xl transition-all ${
               t.type === 'error'
-                ? 'border-red-500/20 bg-red-500/10 text-red-200'
+                ? 'border-red-500/20 bg-[#fdeded] text-[#5f2120]'
                 : t.type === 'success'
-                ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
-                : 'border-blue-500/20 bg-blue-500/10 text-blue-200'
+                ? 'border-emerald-500/20 bg-[#edf7ed] text-[#1e4620]'
+                : 'border-blue-500/20 bg-[#e5f6fd] text-[#014361]'
             }`}
           >
             <div className="flex items-center gap-3">
-              <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
-                t.type === 'error' ? 'bg-red-500/20' : t.type === 'success' ? 'bg-emerald-500/20' : 'bg-blue-500/20'
+              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                t.type === 'error' ? 'bg-red-500/10' : t.type === 'success' ? 'bg-emerald-500/10' : 'bg-blue-500/10'
               }`}>
                 {t.type === 'error' && (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
                 )}
                 {t.type === 'success' && (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                 )}
                 {(t.type === 'info' || t.type === 'warning') && (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 )}
               </div>
               <p className="text-sm font-medium">{t.message}</p>

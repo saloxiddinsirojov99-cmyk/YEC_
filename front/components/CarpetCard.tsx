@@ -358,18 +358,13 @@ export default function CarpetCard({ carpet }: Props) {
             </button>
           </div>
 
-                    {/* Detailed Info - show on mobile for prayer mats, desktop for all */}
           <div className={`${isPrayer ? 'block' : 'hidden'} sm:block space-y-1`}>
             <p className="text-[11px] font-semibold tracking-wider uppercase text-ink/50 sm:text-xs sm:tracking-widest sm:text-ink/40 line-clamp-1">
               Material: {carpet.material}
             </p>
           </div>
 
-          <div
-            className={`flex flex-col gap-2 sm:grid sm:gap-4 ${
-              isAdmin ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
-            }`}
-          >
+          <div className="mt-5 flex flex-wrap gap-2 sm:gap-3">
             <button
               type="button"
               onClick={(event) => {
@@ -377,7 +372,7 @@ export default function CarpetCard({ carpet }: Props) {
                 event.stopPropagation();
                 openDetail();
               }}
-              className="btn-premium w-full py-3.5 text-xs font-bold uppercase tracking-[0.15em] sm:py-4"
+              className="btn-premium min-w-[85px] flex-1 !px-2 !py-2.5 text-[9px] font-black uppercase tracking-wider sm:min-w-[100px] sm:text-[10px]"
             >
               Batafsil
             </button>
@@ -385,7 +380,7 @@ export default function CarpetCard({ carpet }: Props) {
               type="button"
               onClick={handleAddToCart}
               disabled={carpet.stock <= 0 || isAdded}
-              className={`hidden sm:flex items-center justify-center w-full rounded-xl py-3.5 text-xs font-bold uppercase tracking-[0.15em] transition-all ${
+              className={`flex min-w-[85px] flex-1 items-center justify-center rounded-xl px-2 py-2.5 text-[9px] font-black uppercase tracking-wider transition-all sm:min-w-[100px] sm:text-[10px] ${
                 carpet.stock <= 0
                   ? 'cursor-not-allowed bg-slate-100 text-ink/30'
                   : isAdded
@@ -393,7 +388,7 @@ export default function CarpetCard({ carpet }: Props) {
                     : 'bg-emerald-500 text-white hover:bg-emerald-600'
               }`}
             >
-              {carpet.stock <= 0 ? 'Mavjud emas' : isAdded ? "Savatda" : "Savatga"}
+              {carpet.stock <= 0 ? 'Yo\'q' : isAdded ? "Savatda" : "Savatga"}
             </button>
             {isAdmin ? (
               <button
@@ -403,7 +398,7 @@ export default function CarpetCard({ carpet }: Props) {
                   event.stopPropagation();
                   router.push(adminEditUrl);
                 }}
-                className="flex items-center justify-center w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[11px] font-semibold tracking-[0.08em] text-amber-700 transition-all hover:bg-amber-500 hover:text-white"
+                className="flex min-w-full items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 px-2 py-2.5 text-[9px] font-black uppercase tracking-wider text-amber-700 transition-all hover:bg-amber-500 hover:text-white sm:text-[10px]"
               >
                 Tahrirlash
               </button>
