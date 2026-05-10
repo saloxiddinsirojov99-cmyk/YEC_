@@ -20,7 +20,7 @@ const BRANCHES: Branch[] = [
   {
     name: '2. Algoritim filiali',
     lat: 41.2621776,
-    lng: 68.9952327, // Corrected from the google maps link in contact page
+    lng: 69.147668,
     description: 'Samarqand Darvoza koʻchasi, Algoritim daxasi',
   },
 ];
@@ -50,13 +50,34 @@ export default function ContactMap() {
     googleStreets.addTo(map);
 
     BRANCHES.forEach((branch) => {
-      const marker = L.marker([branch.lat, branch.lng]).addTo(map);
+      const showroomIcon = L.divIcon({
+        className: 'custom-showroom-marker',
+        html: `
+          <div class="relative group">
+            <div class="flex items-center justify-center w-10 h-10 bg-white rounded-full shadow-lg border-2 border-primary overflow-hidden transition-transform group-hover:scale-110">
+              <img src="/logo.png" alt="YEC" class="w-8 h-8 object-contain" />
+            </div>
+            <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-primary rotate-45 transform"></div>
+          </div>
+        `,
+        iconSize: [40, 40],
+        iconAnchor: [20, 40],
+      });
+
+      const marker = L.marker([branch.lat, branch.lng], { icon: showroomIcon }).addTo(map);
       marker.bindPopup(`
-        <div class="p-2">
-          <strong class="text-ink font-serif">${branch.name}</strong>
-          <p class="text-xs text-ink/70 mt-1">${branch.description}</p>
+        <div class="p-2 min-w-[150px]">
+          <strong class="text-primary font-serif text-base block">${branch.name}</strong>
+          <p class="text-[11px] text-ink/70 mt-1 leading-relaxed">${branch.description}</p>
+          <a href="https://www.google.com/maps/dir/?api=1&destination=${branch.lat},${branch.lng}" 
+             target="_blank" 
+             class="mt-3 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-primary hover:underline">
+            Yo'nalish olish ->
+          </a>
         </div>
-      `);
+      `, {
+        className: 'custom-popup',
+      });
     });
 
     mapRef.current = map;
@@ -70,8 +91,28 @@ export default function ContactMap() {
   }, [ready]);
 
   return (
-    <div className="relative h-[400px] w-full overflow-hidden rounded-[2rem] border border-white/10 shadow-2xl backdrop-blur-md">
+    <div className="relative h-[450px] w-full overflow-hidden rounded-[2.5rem] border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.15)] backdrop-blur-md">
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <style>{`
+        .custom-showroom-marker {
+          background: none !important;
+          border: none !important;
+        }
+        .leaflet-container {
+          cursor: grab !important;
+        }
+        .leaflet-container:active {
+          cursor: grabbing !important;
+        }
+        .custom-popup .leaflet-popup-content-wrapper {
+          border-radius: 1.5rem;
+          padding: 8px;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        .custom-popup .leaflet-popup-tip {
+          box-shadow: none;
+        }
+      `}</style>
       <Script
         src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         onLoad={() => setReady(true)}

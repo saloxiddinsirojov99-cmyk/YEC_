@@ -20,6 +20,23 @@ const isInBounds = (lat: number, lng: number) =>
 const isInUzbekistanBounds = (lat: number, lng: number) =>
   lat >= 37.17 && lat <= 45.59 && lng >= 55.99 && lng <= 73.15;
 
+const SHOWROOMS = [
+  {
+    id: 'olim-polvon',
+    name: 'Olim Polvon filiali',
+    lat: 41.2294433,
+    lng: 69.1730268,
+    address: 'YEC, Tashkent Ring Automobile Road',
+  },
+  {
+    id: 'algoritim',
+    name: 'Algoritim filiali',
+    lat: 41.2621776,
+    lng: 69.147668,
+    address: 'Samarqand Yec Gilamlari',
+  },
+];
+
 const isAddressTashkent = (address: Record<string, unknown>) => {
   const pick = (key: string) => {
     const value = address[key];
@@ -137,6 +154,40 @@ export default function LocationPicker({
     });
 
     return markerRef.current;
+  };
+
+  const applyShowroomMarkers = (map: any) => {
+    const L = (window as any).L;
+    if (!L || !map) return;
+
+    SHOWROOMS.forEach((sr) => {
+      const showroomIcon = L.divIcon({
+        className: 'custom-showroom-marker',
+        html: `
+          <div class="relative group">
+            <div class="flex items-center justify-center w-10 h-10 bg-white rounded-full shadow-lg border-2 border-primary overflow-hidden transition-transform group-hover:scale-110">
+              <img src="/logo.png" alt="YEC" class="w-8 h-8 object-contain" />
+            </div>
+            <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-primary rotate-45 transform"></div>
+          </div>
+        `,
+        iconSize: [40, 40],
+        iconAnchor: [20, 40],
+      });
+
+      L.marker([sr.lat, sr.lng], { icon: showroomIcon })
+        .addTo(map)
+        .bindTooltip(`
+          <div class="p-1">
+            <p class="font-bold text-xs text-primary">${sr.name}</p>
+            <p class="text-[10px] text-ink/60">${sr.address}</p>
+          </div>
+        `, {
+          direction: 'top',
+          offset: [0, -40],
+          className: 'yandex-label-tooltip'
+        });
+    });
   };
 
   const reverseGeocode = async (lat: number, lng: number) => {
@@ -296,6 +347,8 @@ export default function LocationPicker({
       applyMarker(value.lat, value.lng, map);
     }
 
+    applyShowroomMarkers(map);
+
     mapRef.current = map;
 
     // Small delay to ensure container is fully rendered
@@ -347,9 +400,24 @@ export default function LocationPicker({
           background: none !important;
           border: none !important;
         }
+        .custom-showroom-marker {
+          background: none !important;
+          border: none !important;
+        }
         .leaflet-container {
-          cursor: crosshair !important;
+          cursor: grab !important;
           touch-action: none !important; /* Prevents browser intercepting touch */
+        }
+        .leaflet-container:active {
+          cursor: grabbing !important;
+        }
+        .leaflet-dragging .leaflet-container {
+          cursor: grabbing !important;
+        }
+        .leaflet-container .leaflet-marker-icon,
+        .leaflet-container .leaflet-popup,
+        .leaflet-container .leaflet-control {
+          cursor: pointer !important;
         }
       `}</style>
       <Script

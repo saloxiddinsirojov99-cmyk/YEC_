@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { copyText } from '@/utils/clipboard';
+import ContactMap from '@/components/ContactMap';
 
 export default function ContactPage() {
   const [copied, setCopied] = useState<string | null>(null);
@@ -141,28 +142,23 @@ export default function ContactPage() {
           </section>
 
           <section className="space-y-6">
-            {[
-              { title: '1. Olim Polvon filiali', src: 'https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d1500.518605553556!2d69.1730268!3d41.2294433!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x38ae631b59b6c191%3A0x470d9bab83508b45!2sYEC!5e0!3m2!1sen!2s!4v1709110000000!5m2!1sen!2s' },
-              { title: '2. Algoritim filiali', src: 'https://www.google.com/maps/embed?pb=!1m14!1m8!1m3!1d95972.64158576117!2d68.9952327!3d41.2621776!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x38ae89003d2e57ef%3A0x3ffc414b25c1ff79!2sSamarqand%20Yec%20Gilamlari!5e0!3m2!1sen!2s!4v1773081776670!5m2!1sen!2s' }
-            ].map((map) => (
-              <div key={map.title} className="rounded-[2.25rem] border border-white/10 bg-[#0B1120]/80 p-5 shadow-2xl backdrop-blur-md">
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                  <h2 className="font-serif text-2xl text-white">{map.title}</h2>
-                  <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.3em] text-blue-300">
-                    Toshkent
-                  </span>
+            <div className="rounded-[2.5rem] border border-white/10 bg-[#0B1120]/80 p-1 shadow-2xl backdrop-blur-md overflow-hidden">
+               <ContactMap />
+            </div>
+            
+            <div className="rounded-[2.25rem] border border-white/10 bg-[#0B1120]/80 p-8 shadow-2xl backdrop-blur-md">
+              <h2 className="font-serif text-2xl text-white mb-4">Ish vaqti</h2>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center py-2 border-b border-white/5">
+                  <span className="text-slate-400">Dushanba - Shanba</span>
+                  <span className="text-white font-semibold">09:00 - 19:00</span>
                 </div>
-                <div className="overflow-hidden rounded-2xl border border-white/5 shadow-inner">
-                  <iframe
-                    title={map.title}
-                    src={map.src}
-                    className="h-[300px] w-full border-0 shadow-lg"
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                  />
+                <div className="flex justify-between items-center py-2 border-b border-white/5">
+                  <span className="text-slate-400">Yakshanba</span>
+                  <span className="text-white font-semibold">10:00 - 17:00</span>
                 </div>
               </div>
-            ))}
+            </div>
           </section>
         </div>
       </div>
