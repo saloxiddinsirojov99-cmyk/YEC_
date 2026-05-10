@@ -151,24 +151,10 @@ export default function JoynamozlarPage() {
         {/* Modern Filter Interface */}
         <SectionReveal animation="fade-up" id="filter-joynamoz" className="relative -mt-16 z-20">
           <div className="rounded-[2.5rem] border border-slate-200 bg-white p-6 shadow-[0_32px_64px_rgba(0,0,0,0.08)] md:p-10">
-            <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-[1fr,auto]">
-              <div className="space-y-6">
-                <label className="text-xs font-black uppercase tracking-widest text-emerald-800 opacity-60">Qidiruv</label>
-                <div className="relative">
-                  <input
-                    value={filters.name}
-                    onChange={(event) => setFilters((prev) => ({ ...prev, name: event.target.value }))}
-                    type="text"
-                    placeholder="Masalan: Madina modeli..."
-                    className="h-16 w-full rounded-2xl border-slate-100 bg-slate-50 px-6 text-lg font-medium ring-emerald-500/20 transition-all focus:border-emerald-500 focus:bg-white focus:ring-4"
-                  />
-                  <Sparkles className="absolute right-6 top-1/2 h-6 w-6 -translate-y-1/2 text-emerald-300" />
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                <label className="text-xs font-black uppercase tracking-widest text-emerald-800 opacity-60">O'lcham boyicha</label>
-                <div className="flex flex-wrap gap-3">
+            <div className="flex flex-col items-center justify-center gap-8 md:flex-row">
+              <div className="space-y-4 text-center md:text-left">
+                <label className="text-xs font-black uppercase tracking-widest text-emerald-800 opacity-60">O'lcham boyicha saralash</label>
+                <div className="flex flex-wrap justify-center gap-3 md:justify-start">
                   {SIZE_OPTIONS.map((option) => {
                     const isActive = activeSize === option.value;
                     return (
@@ -176,7 +162,7 @@ export default function JoynamozlarPage() {
                         key={option.value}
                         type="button"
                         onClick={() => setActiveSize(option.value)}
-                        className={`h-16 min-w-[140px] rounded-2xl px-6 text-sm font-bold transition-all ${
+                        className={`h-14 min-w-[150px] rounded-2xl px-8 text-sm font-bold transition-all ${
                           isActive 
                             ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20' 
                             : 'bg-slate-50 text-slate-600 hover:bg-slate-100'

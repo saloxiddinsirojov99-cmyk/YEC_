@@ -30,6 +30,7 @@ const MOBILE_MEDIA_QUERY = '(max-width: 767px)';
 
 export default function HomePage() {
   const [latestCarpets, setLatestCarpets] = useState<Carpet[]>([]);
+  const [heroPool, setHeroPool] = useState<Carpet[]>([]);
   const [popularCarpets, setPopularCarpets] = useState<Carpet[]>([]);
   const [carpetCatalog, setCarpetCatalog] = useState<Carpet[]>([]);
   const [prayerMats, setPrayerMats] = useState<Carpet[]>([]);
@@ -77,16 +78,18 @@ export default function HomePage() {
       try {
         setLoading(true);
 
-        const [latestRes, popularRes, prayerRes, ovalRes, categoriesRes] =
+        const [latestRes, popularRes, prayerRes, ovalRes, categoriesRes, heroVarietyRes] =
           await Promise.allSettled([
             getCarpets({ page: 1, limit: 12, kind: 'carpet' }),
             getCarpets({ page: 1, limit: POPULAR_DESKTOP_LIMIT, sortBy: 'popular', kind: 'carpet' }),
             getCarpets({ page: 1, limit: PRAYER_MAT_PREVIEW_LIMIT, kind: 'prayer' }),
             getCarpets({ page: 1, limit: OVAL_CARPET_PREVIEW_LIMIT, kind: 'oval' }),
             getCategories(),
+            getCarpets({ page: 1, limit: 100, kind: 'carpet' }), // Fetch more for hero variety
           ]);
 
         const latest = latestRes.status === 'fulfilled' ? (latestRes.value.items ?? []) : [];
+        const poolForHero = heroVarietyRes.status === 'fulfilled' ? (heroVarietyRes.value.items ?? []) : latest;
         const popular = popularRes.status === 'fulfilled' ? (popularRes.value.items ?? []) : [];
         const prayer = prayerRes.status === 'fulfilled' ? (prayerRes.value.items ?? []) : [];
         const oval = ovalRes.status === 'fulfilled' ? (ovalRes.value.items ?? []) : [];
@@ -98,6 +101,7 @@ export default function HomePage() {
         );
 
         setLatestCarpets(latest);
+        setHeroPool(poolForHero);
         setPopularCarpets(popular);
         setPrayerMats(prayer);
         setOvalCarpets(oval);
@@ -203,33 +207,49 @@ export default function HomePage() {
   );
 
   const heroCarpets = useMemo(() => {
-    const sortedCategories = [...categories].sort((a, b) => {
-       const aName = a.name.toLowerCase();
-       const bName = b.name.toLowerCase();
-       const getOrder = (n: string) => {
-         if (n.includes('iran soft') || n.includes('eron')) return 1;
-         if (n.includes('steffani') || n.includes('stefani')) return 2;
-         if (n.includes('verona')) return 3;
-         return 99;
-       };
-       return getOrder(aName) - getOrder(bName);
+    const groupedByCollection: Record<string, Carpet[]> = {};
+    
+    // Group all available carpets in the hero pool by their collection
+    const poolToUse = heroPool.length > 0 ? heroPool : latestCarpets;
+    
+    poolToUse.forEach(c => {
+      const collection = c.name.split(/\s+/)[0]?.toLowerCase() || 'other';
+      if (!groupedByCollection[collection]) groupedByCollection[collection] = [];
+      groupedByCollection[collection].push(c);
     });
 
     const slides: Carpet[] = [];
-    for (const cat of sortedCategories) {
-       const catCarpets = latestCarpets.filter(c => c.categoryId === cat.id);
-       if (catCarpets.length > 0) {
-         catCarpets.forEach(c => {
-           slides.push({ ...c, category: cat });
-         });
-       } else {
-         const preview = categoryCarpets[cat.id];
-         if (preview) slides.push({ ...preview, category: cat });
-       }
-    }
+    const collections = Object.keys(groupedByCollection);
     
-    return slides.length > 0 ? slides : latestCarpets.slice(0, 10);
-  }, [categories, categoryCarpets, latestCarpets]);
+    // Pick 2 from each collection for variety
+    collections.forEach(col => {
+      const items = groupedByCollection[col];
+      slides.push(...items.slice(0, 2));
+    });
+
+    // Fill up to 12 slides if we have more variety available
+    if (slides.length < 12 && poolToUse.length > slides.length) {
+      const usedIds = new Set(slides.map(s => s.id));
+      const remaining = poolToUse.filter(c => !usedIds.has(c.id));
+      slides.push(...remaining.slice(0, 12 - slides.length));
+    }
+
+    return slides.sort((a, b) => {
+      const aName = a.name.toLowerCase();
+      const bName = b.name.toLowerCase();
+      const getPriority = (n: string) => {
+        if (n.includes('iran') || n.includes('eron')) return 1;
+        if (n.includes('stefani') || n.includes('steffano')) return 2;
+        if (n.includes('verona')) return 3;
+        if (n.includes('touch')) return 4;
+        if (n.includes('luna')) return 5;
+        if (n.includes('zenit')) return 6;
+        if (n.includes('zegna')) return 7;
+        return 99;
+      };
+      return getPriority(aName) - getPriority(bName);
+    }).slice(0, 12);
+  }, [heroPool, latestCarpets]);
 
   return (
     <div className="space-y-7 pb-16" suppressHydrationWarning>
@@ -287,143 +307,186 @@ export default function HomePage() {
       </section>
 
       {/* 2. Yangi gilamlar */}
-      <SectionReveal animation="fade-up" className="section-shell">
-        <SectionHeading className="mb-10 flex flex-wrap items-end justify-between gap-6">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.4em] text-sky-600">Yangi kolleksiya</p>
-            <h2 className="text-premium font-serif text-3xl md:text-5xl">Yangi gilamlar</h2>
-          </div>
-          <Link href="/yangi-gilamlar" className="group scale-in inline-flex items-center gap-2 rounded-full border border-sky-400/30 bg-white/60 px-6 py-2.5 text-sm font-bold text-sky-700 shadow-sm backdrop-blur-md transition-all duration-300 hover:-translate-y-1">
-            Barchasini ko'rish <span>-&gt;</span>
-          </Link>
-        </SectionHeading>
-        <CarpetList carpets={latestCarpets} loading={loading} emptyText="Yangi gilamlar topilmadi." />
-      </SectionReveal>
-
-      {/* 3. Mashhur gilamlar */}
-      <SectionReveal animation="slide-right" className="section-shell">
-        <div className="section-breathe relative overflow-hidden rounded-[2.75rem] border border-blue-400/30 bg-white/5 p-8 shadow-xl md:p-12">
-          <SectionHeading className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
+      <section className="relative overflow-hidden py-16">
+        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-sky-50/50 to-white pointer-events-none" />
+        <SectionReveal animation="fade-up" className="section-shell relative z-10">
+          <SectionHeading className="mb-10 flex flex-wrap items-end justify-between gap-6">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.4em] text-blue-600">Top sotuvlar</p>
-              <h2 className="text-premium font-serif text-3xl md:text-5xl">Mashhur gilamlar</h2>
+              <p className="text-xs font-bold uppercase tracking-[0.4em] text-sky-600">Yangi kolleksiya</p>
+              <h2 className="text-premium font-serif text-3xl md:text-5xl">Yangi gilamlar</h2>
             </div>
-            <Link href="/mashhur-gilamlar" className="group scale-in inline-flex items-center gap-2 rounded-full border border-blue-400/30 bg-white/60 px-6 py-2.5 text-sm font-bold text-blue-700 shadow-sm backdrop-blur-md transition-all duration-300 hover:-translate-y-1">
+            <Link href="/yangi-gilamlar" className="group scale-in inline-flex items-center gap-2 rounded-full border border-sky-400/30 bg-white/60 px-6 py-2.5 text-sm font-bold text-sky-700 shadow-sm backdrop-blur-md transition-all duration-300 hover:-translate-y-1">
               Barchasini ko'rish <span>-&gt;</span>
             </Link>
           </SectionHeading>
-          <div className="relative z-10">
-            <CarpetList carpets={popularDisplay} loading={loading} emptyText="Mashhur gilamlar hali yo'q." />
+          <CarpetList carpets={latestCarpets} loading={loading} emptyText="Yangi gilamlar topilmadi." />
+        </SectionReveal>
+      </section>
+
+      {/* 3. Mashhur gilamlar */}
+      <section className="relative overflow-hidden py-16">
+        <div className="absolute top-0 left-0 w-full h-full bg-[#0b1e3a] pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-blue-500/10 rounded-full blur-[120px] pointer-events-none" />
+        <SectionReveal animation="slide-right" className="section-shell relative z-10">
+          <div className="section-breathe relative overflow-hidden rounded-[2.75rem] border border-white/10 bg-white/5 p-8 shadow-2xl md:p-12 backdrop-blur-sm">
+            <SectionHeading className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.4em] text-blue-300">Top sotuvlar</p>
+                <h2 className="font-serif text-3xl md:text-5xl text-white">Mashhur gilamlar</h2>
+              </div>
+              <Link href="/mashhur-gilamlar" className="group scale-in inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-6 py-2.5 text-sm font-bold text-white shadow-sm backdrop-blur-md transition-all duration-300 hover:-translate-y-1">
+                Barchasini ko'rish <span className="text-blue-300">-&gt;</span>
+              </Link>
+            </SectionHeading>
+            <div className="relative z-10">
+              <CarpetList carpets={popularDisplay} loading={loading} emptyText="Mashhur gilamlar hali yo'q." />
+            </div>
           </div>
-        </div>
-      </SectionReveal>
+        </SectionReveal>
+      </section>
 
       <SectionReveal animation="fade-up" className="w-full">
         <NikeStyleSlider carpets={heroCarpets} />
       </SectionReveal>
 
       {/* 4. Joynamozlar */}
-      <SectionReveal animation="slide-left" className="section-shell">
-        <div className="section-breathe relative overflow-hidden rounded-[2.5rem] border border-emerald-400/30 bg-white/5 p-4 sm:p-8 shadow-xl md:p-12">
-          <SectionHeading className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.4em] text-emerald-600">Premium</p>
-              <h2 className="text-premium font-serif text-3xl md:text-5xl">Joynamozlar</h2>
+      <section className="relative overflow-hidden py-16">
+        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-emerald-50 via-white to-emerald-50/30 pointer-events-none" />
+        <SectionReveal animation="slide-left" className="section-shell relative z-10">
+          <div className="section-breathe relative overflow-hidden rounded-[2.5rem] border border-emerald-400/20 bg-white/40 p-4 sm:p-8 shadow-xl md:p-12 backdrop-blur-md">
+            <SectionHeading className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.4em] text-emerald-600">Premium</p>
+                <h2 className="text-premium font-serif text-3xl md:text-5xl">Joynamozlar</h2>
+              </div>
+              <Link href="/joynamozlar" className="group scale-in inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-white px-6 py-2.5 text-sm font-bold text-emerald-700 shadow-sm transition-all duration-300 hover:-translate-y-1">
+                Barchasini ko'rish <span>-&gt;</span>
+              </Link>
+            </SectionHeading>
+            <div className="md:hidden">
+              <CarpetCarousel carpets={prayerMats} loading={loading} />
             </div>
-            <Link href="/joynamozlar" className="group scale-in inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-white/60 px-6 py-2.5 text-sm font-bold text-emerald-700 shadow-sm backdrop-blur-md transition-all duration-300 hover:-translate-y-1">
-              Barchasini ko'rish <span>-&gt;</span>
-            </Link>
-          </SectionHeading>
-          <div className="md:hidden">
-            <CarpetCarousel carpets={prayerMats} loading={loading} />
+            <div className="hidden md:block">
+              <CarpetList carpets={prayerMats} loading={loading} />
+            </div>
           </div>
-          <div className="hidden md:block">
-            <CarpetList carpets={prayerMats} loading={loading} />
-          </div>
-        </div>
-      </SectionReveal>
+        </SectionReveal>
+      </section>
 
-      {/* 5. Gilam turlari - 6 columns layout */}
-      <SectionReveal animation="flip-up" className="w-full">
-        <SectionHeading className="section-shell mb-10">
-          <p className="text-xs font-bold uppercase tracking-[0.4em] text-amber-600">Katalog</p>
-          <h2 className="text-premium font-serif text-3xl md:text-5xl">Gilam turlari</h2>
-        </SectionHeading>
-        <div className="relative w-full max-w-[1600px] mx-auto px-4 md:px-8">
-          <CardStagger className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 lg:gap-4">
-            {loading
-              ? Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="aspect-[4/5] animate-pulse rounded-3xl bg-slate-100" />
-                ))
-              : categoryPreview.map(({ category, preview }) => (
-                  <CardItem key={category.id}>
-                    <Link
-                      href={`/turlar/${category.id}`}
-                      className="group relative block aspect-[4/5] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-500 hover:-translate-y-2 hover:shadow-xl sm:rounded-3xl"
-                    >
-                      <img
-                        src={getImageUrl(preview?.images?.[0]) || fallbackCategoryImage}
-                        alt={category.name}
-                        className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-115"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/20 to-transparent opacity-80" />
-                      <div className="absolute right-0 bottom-0 left-0 p-3 text-center md:p-5">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-white sm:text-xs md:text-sm lg:text-[0.65rem] xl:text-xs">
-                          {category.name}
-                        </p>
-                      </div>
-                    </Link>
-                  </CardItem>
-                ))}
-          </CardStagger>
-        </div>
-      </SectionReveal>
+      {/* 5. Gilam turlari */}
+      <section className="relative overflow-hidden py-16 bg-[#FFFBF0]">
+        <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-amber-200/20 rounded-full blur-[100px] pointer-events-none" />
+        <SectionReveal animation="flip-up" className="w-full relative z-10">
+          <SectionHeading className="section-shell mb-10">
+            <p className="text-xs font-bold uppercase tracking-[0.4em] text-amber-600">Katalog</p>
+            <h2 className="text-premium font-serif text-3xl md:text-5xl">Gilam turlari</h2>
+          </SectionHeading>
+          <div className="relative w-full max-w-[1600px] mx-auto px-4 md:px-8">
+            <CardStagger className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 lg:gap-4">
+              {loading
+                ? Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="aspect-[4/5] animate-pulse rounded-3xl bg-amber-100/50" />
+                  ))
+                : categoryPreview.map(({ category, preview }) => (
+                    <CardItem key={category.id}>
+                      <Link
+                        href={`/turlar/${category.id}`}
+                        className="group relative block aspect-[4/5] overflow-hidden rounded-2xl border border-amber-200/50 bg-white shadow-sm transition-all duration-500 hover:-translate-y-2 hover:shadow-xl sm:rounded-3xl"
+                      >
+                        <img
+                          src={getImageUrl(preview?.images?.[0]) || fallbackCategoryImage}
+                          alt={category.name}
+                          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-115"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-amber-950/80 via-transparent to-transparent opacity-80" />
+                        <div className="absolute right-0 bottom-0 left-0 p-3 text-center md:p-5">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-white sm:text-xs md:text-sm lg:text-[0.65rem] xl:text-xs">
+                            {category.name}
+                          </p>
+                        </div>
+                      </Link>
+                    </CardItem>
+                  ))}
+            </CardStagger>
+          </div>
+        </SectionReveal>
+      </section>
 
       {/* 6. Ovalni gilamlar */}
-      <SectionReveal animation="zoom-in" className="section-shell">
-        <div className="section-breathe relative overflow-hidden rounded-[2.5rem] border border-fuchsia-300/30 bg-white/5 p-4 sm:p-8 shadow-xl md:p-12">
-          <SectionHeading className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.4em] text-fuchsia-600">Maxsus</p>
-              <h2 className="text-premium font-serif text-3xl md:text-5xl">Ovalni gilamlar</h2>
+      <section className="relative overflow-hidden py-16 bg-[#020617]">
+        <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-fuchsia-600/5 rounded-full blur-[120px] pointer-events-none" />
+        <SectionReveal animation="zoom-in" className="section-shell relative z-10">
+          <div className="section-breathe relative overflow-hidden rounded-[2.5rem] border border-fuchsia-500/20 bg-white/5 p-4 sm:p-8 shadow-xl md:p-12 backdrop-blur-md">
+            <SectionHeading className="relative z-10 mb-10 flex flex-wrap items-end justify-between gap-6">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.4em] text-fuchsia-400">Maxsus</p>
+                <h2 className="font-serif text-3xl md:text-5xl text-white">Ovalni gilamlar</h2>
+              </div>
+              <Link href="/ovalni-gilamlar" className="group scale-in inline-flex items-center gap-2 rounded-full border border-fuchsia-400/30 bg-white/10 px-6 py-2.5 text-sm font-bold text-white shadow-sm backdrop-blur-md transition-all duration-300 hover:-translate-y-1">
+                Barchasini ko'rish <span>-&gt;</span>
+              </Link>
+            </SectionHeading>
+            <div className="md:hidden">
+              <CarpetCarousel carpets={ovalCarpets} loading={loading} />
             </div>
-            <Link href="/ovalni-gilamlar" className="group scale-in inline-flex items-center gap-2 rounded-full border border-fuchsia-400/30 bg-white/60 px-6 py-2.5 text-sm font-bold text-fuchsia-700 shadow-sm backdrop-blur-md transition-all duration-300 hover:-translate-y-1">
-              Barchasini ko'rish <span>-&gt;</span>
-            </Link>
-          </SectionHeading>
-          <div className="md:hidden">
-            <CarpetCarousel carpets={ovalCarpets} loading={loading} />
+            <div className="hidden md:block">
+              <CarpetList carpets={ovalCarpets} loading={loading} />
+            </div>
           </div>
-          <div className="hidden md:block">
-            <CarpetList carpets={ovalCarpets} loading={loading} />
-          </div>
-        </div>
-      </SectionReveal>
+        </SectionReveal>
+      </section>
 
       {/* About & Contact */}
       <SectionReveal animation="rise" duration={0.8} className="section-shell pb-10">
-        <div className="section-breathe relative overflow-hidden rounded-[2.9rem] border border-sky-300/20 shadow-2xl">
+        <div className="section-breathe relative overflow-hidden rounded-[2.9rem] border border-sky-300/20 shadow-2xl bg-[#0b1e3a] text-white">
           <div className="grid gap-0 md:grid-cols-2">
-            <article className="relative overflow-hidden bg-[#0b1e3a] p-10 text-white md:p-12">
+            <article className="relative overflow-hidden p-10 text-white md:p-12">
+              <div className="absolute -top-10 -right-10 h-40 w-40 bg-white/5 rounded-full blur-3xl" />
               <h3 className="font-serif text-4xl md:text-5xl">Biz haqimizda</h3>
               <p className="mt-6 text-lg leading-relaxed text-white/90">
-                <span className="text-[#D4AF37] font-bold">YEC</span> Market - zavodning Toshkentdagi rasmiy filiallar tarmog'i. 
-                Mahsulotlarimiz bevosita zavoddan keladi, shuning uchun narxlar doimo zavod narxida bo'ladi.
+                <span className="text-[#D4AF37] font-bold">YEC</span> Market - Toshkentdagi eng yirik gilamlar majmuasi va zavodning rasmiy vakili. 
+                Bizning asosiy afzalligimiz - mahsulotlarning bevosita zavoddan kelishi, bu esa sizga o'rtadagi qo'shimcha xarajatlarsiz <span className="text-[#D4AF37] font-bold">zavod narxida</span> xarid qilish imkonini beradi.
               </p>
-              <Link href="/about" className="group mt-10 inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/30 px-10 py-4 text-base font-bold text-white transition-all hover:bg-white/20">
-                Batafsil <span>-&gt;</span>
+              <p className="mt-4 text-sm text-white/70 leading-relaxed">
+                Bizda 500 dan ortiq dizayn va o'lchamdagi gilamlar mavjud. Sifatga 100% kafolat beramiz va uyingizgacha bepul yetkazib berish xizmatini taklif etamiz.
+              </p>
+              <Link href="/about" className="group mt-8 inline-flex items-center gap-2 rounded-xl bg-white/10 border border-white/30 px-8 py-4 text-sm font-bold text-white transition-all hover:bg-white/20 hover:-translate-y-1">
+                Batafsil ma&apos;lumot <span>-&gt;</span>
               </Link>
             </article>
 
             <article className="relative overflow-hidden bg-[#020617] p-10 text-white md:p-12">
+              <div className="absolute -bottom-10 -left-10 h-40 w-40 bg-blue-500/10 rounded-full blur-3xl" />
               <h3 className="font-serif text-4xl md:text-5xl">Aloqa</h3>
-              <div className="mt-8 space-y-4">
-                <button onClick={() => copyToClipboard('+998997999922')} className="flex items-center gap-4 text-xl font-bold hover:text-blue-400">
-                   +998 99 799 99 22
-                </button>
-                <button onClick={() => copyToClipboard('+998991079922')} className="flex items-center gap-4 text-xl font-bold hover:text-blue-400">
-                   +998 99 107 99 22
-                </button>
+              <div className="mt-8 space-y-6">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Telefon raqamlarimiz</p>
+                  <div className="flex flex-col gap-3">
+                    <button onClick={() => copyToClipboard('+998997999922')} className="flex items-center gap-3 text-xl font-bold hover:text-blue-400 transition-colors">
+                      <span className="h-2 w-2 rounded-full bg-blue-500" /> +998 99 799 99 22
+                    </button>
+                    <button onClick={() => copyToClipboard('+998991079922')} className="flex items-center gap-3 text-xl font-bold hover:text-blue-400 transition-colors">
+                      <span className="h-2 w-2 rounded-full bg-blue-500" /> +998 99 107 99 22
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-6">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Ish vaqti</p>
+                    <p className="text-sm font-medium">Har kuni: 08:00 - 21:00</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Manzillarimiz</p>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Olim Polvon va Algoritim filiallari
+                    </p>
+                  </div>
+                </div>
+                
+                <Link href="/contact" className="group inline-flex items-center gap-2 text-xs font-bold text-blue-400 uppercase tracking-widest hover:underline">
+                  Xaritada ko&apos;rish <span className="transition-transform group-hover:translate-x-1">→</span>
+                </Link>
               </div>
             </article>
           </div>

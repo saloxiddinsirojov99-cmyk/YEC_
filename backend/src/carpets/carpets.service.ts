@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCarpetDto } from './dto/create-carpet.dto';
@@ -121,8 +122,25 @@ const buildSizePatterns = (a: number, b: number): string[] => {
 };
 
 @Injectable()
-export class CarpetsService {
+export class CarpetsService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit() {
+    try {
+      const carpets = await this.prisma.carpet.findMany({ select: { id: true } });
+      for (const carpet of carpets) {
+        const count = await this.prisma.carpetLike.count({
+          where: { carpetId: carpet.id },
+        });
+        await this.prisma.carpet.update({
+          where: { id: carpet.id },
+          data: { likes: count },
+        });
+      }
+    } catch (error) {
+      console.error('Error syncing carpet likes:', error);
+    }
+  }
 
   /**
    * Given a user's material query, find all synonym keywords that should be searched.

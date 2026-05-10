@@ -35,6 +35,7 @@ export default function CarpetDetailPage() {
   const [likeCount, setLikeCount] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
   const [similarCarpets, setSimilarCarpets] = useState<Carpet[]>([]);
+  const [discoverCarpets, setDiscoverCarpets] = useState<Carpet[]>([]);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
 
   useEffect(() => {
@@ -124,25 +125,35 @@ export default function CarpetDetailPage() {
         setLoadingSimilar(true);
         const response = await getCarpets({
           page: 1,
-          limit: 12,
+          limit: 40,
           categoryId: carpet.categoryId,
         });
         const currentName = carpet.name.toLowerCase().trim();
         const firstToken = currentName.split(/\s+/)[0] ?? '';
 
-        const items = (response.items ?? [])
+        const items = response.items ?? [];
+        
+        // Similar: Carpets from the same collection (matching first token of name)
+        const similar = items
           .filter((item) => item.id !== carpet.id)
-          .sort((a, b) => {
-            if (!firstToken) return 0;
-            const aScore = a.name.toLowerCase().includes(firstToken) ? 1 : 0;
-            const bScore = b.name.toLowerCase().includes(firstToken) ? 1 : 0;
-            return bScore - aScore;
+          .filter((item) => {
+            if (!firstToken) return false;
+            return item.name.toLowerCase().includes(firstToken);
           })
-          .slice(0, 6);
+          .slice(0, 16);
 
-        setSimilarCarpets(items);
+        // Discover: Other carpets from the same category
+        const similarIds = new Set(similar.map(s => s.id));
+        const discover = items
+          .filter((item) => item.id !== carpet.id && !similarIds.has(item.id))
+          .sort(() => Math.random() - 0.5)
+          .slice(0, 12);
+
+        setSimilarCarpets(similar);
+        setDiscoverCarpets(discover);
       } catch {
         setSimilarCarpets([]);
+        setDiscoverCarpets([]);
       } finally {
         setLoadingSimilar(false);
       }
@@ -203,7 +214,7 @@ export default function CarpetDetailPage() {
       <div className="grid gap-8 md:grid-cols-2">
         <div className="space-y-4">
           <div
-            className="group relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-black/10 bg-white shadow-soft"
+            className="group relative w-full overflow-hidden rounded-2xl border border-black/10 bg-white shadow-soft"
             onClick={() => {
               if (isTouch) setShowZoomCta(true);
             }}
@@ -217,7 +228,7 @@ export default function CarpetDetailPage() {
             <img
               src={zoomImage}
               alt={carpet.name}
-              className="h-full w-full object-contain bg-white transition-opacity duration-500"
+              className="w-full h-auto max-h-[80vh] object-contain bg-white transition-opacity duration-500"
             />
             <button
               type="button"
@@ -336,7 +347,9 @@ export default function CarpetDetailPage() {
           <div className="mt-7 flex flex-wrap gap-3">
             <button
               type="button"
-              className={`btn-primary px-8 py-3 ${carpet.stock <= 0 ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
+              className={`inline-flex items-center justify-center rounded-xl px-8 py-3 text-sm font-bold text-white shadow-lg transition-all hover:-translate-y-0.5 active:scale-95 ${
+                carpet.stock <= 0 ? 'bg-slate-400 cursor-not-allowed grayscale' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'
+              }`}
               disabled={carpet.stock <= 0}
               onClick={() => {
                 if (!getToken()) {
@@ -370,11 +383,11 @@ export default function CarpetDetailPage() {
                   router.push('/login');
                 }
               }}
-              className="btn-secondary px-8 py-3 bg-emerald-500/10 text-emerald-600 border-emerald-500/20 hover:bg-emerald-500 hover:text-white transition-all"
+              className="inline-flex items-center justify-center rounded-xl border-2 border-amber-500/20 bg-amber-500/10 px-8 py-3 text-sm font-bold text-amber-600 transition-all hover:bg-amber-500 hover:text-white"
             >
               Savatga o'tish
             </Link>
-            <Link href="/carpets" className="btn-secondary px-8 py-3 bg-amber-500/10 text-amber-600 border-amber-500/20 hover:bg-amber-500 hover:text-white transition-all">
+            <Link href="/carpets" className="inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-slate-50 px-8 py-3 text-sm font-bold text-slate-600 transition-all hover:bg-slate-100 hover:text-slate-900">
               Marketga qaytish
             </Link>
           </div>
@@ -388,23 +401,43 @@ export default function CarpetDetailPage() {
       </div>
 
       <section className="mt-14">
-        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.3em] text-ink/40">
-              Tavsiya
+            <p className="text-xs font-bold uppercase tracking-[0.3em] text-primary/60">
+              Kolleksiya
             </p>
-            <h2 className="font-serif text-3xl text-ink">Shunga o&apos;xshash gilamlar</h2>
+            <h2 className="font-serif text-3xl text-ink">O&apos;xshash gilamlar</h2>
           </div>
-          <Link href="/carpets" className="btn-secondary px-5 py-2.5 text-sm">
+          <Link href={`/turlar/${carpet.categoryId}`} className="btn-secondary px-6 py-2.5 text-sm font-bold border-primary/20 text-primary hover:bg-primary hover:text-white transition-all">
             Barchasini ko&apos;rish
           </Link>
         </div>
-        <CarpetList
-          carpets={similarCarpets}
-          loading={loadingSimilar}
-          emptyText="Hozircha o'xshash gilam topilmadi."
-        />
+        
+        <div className="relative">
+          <CarpetList
+            carpets={similarCarpets}
+            loading={loadingSimilar}
+            emptyText="Hozircha o'xshash gilam topilmadi."
+          />
+        </div>
       </section>
+
+      {discoverCarpets.length > 0 && (
+        <section className="mt-20">
+          <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-t border-black/5 pt-12">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.3em] text-amber-600">
+                Kashf qiling
+              </p>
+              <h2 className="font-serif text-3xl text-ink">Yana boshqa gilamlar</h2>
+            </div>
+          </div>
+          <CarpetList
+            carpets={discoverCarpets}
+            loading={loadingSimilar}
+          />
+        </section>
+      )}
 
       {isZoomOpen ? (
         <div

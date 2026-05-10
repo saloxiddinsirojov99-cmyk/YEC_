@@ -534,7 +534,7 @@ export default function CreateAdminCarpetPage() {
       const finalImageUrls = Array.from(
         new Set(
           [
-            ...(autoMappedImage ? [autoMappedImage] : []),
+            ...(!(isOvalCarpet || isPrayerMat) && autoMappedImage ? [autoMappedImage] : []),
             ...existingImageUrls,
             ...uploadedImageUrls,
           ].filter(Boolean),
@@ -591,7 +591,15 @@ export default function CreateAdminCarpetPage() {
         }
       }
 
-      const finalDescription = description.trim();
+      let finalDescription = description.trim();
+      if (finalDescription) {
+        finalDescription =
+          finalDescription.charAt(0).toUpperCase() + finalDescription.slice(1);
+        if (!finalDescription.endsWith('.')) {
+          finalDescription += '.';
+        }
+      }
+
       const payload = {
         name: finalName,
         price: Number(effectiveTotalPrice),
@@ -748,7 +756,7 @@ export default function CreateAdminCarpetPage() {
               : "Gul kodi (masalan: DC-001)"
           }
           value={designCode}
-          onChange={(e) => setDesignCode(e.target.value)}
+          onChange={(e) => setDesignCode(e.target.value.toUpperCase())}
         />
         <input
           className={`input-field ${!isPrayerMat && m2AutoLocked ? 'bg-sand/40' : ''}`}
@@ -943,21 +951,7 @@ export default function CreateAdminCarpetPage() {
           onChange={(e) => setDescription(e.target.value)}
           rows={4}
         />
-        {isPrayerMat || isOvalCarpet ? (
-          <div className="md:col-span-2">
-            <label className="block text-sm text-ink/70 mb-1">Kategoriya</label>
-            <div className="flex flex-col gap-2">
-              <input
-                className="input-field bg-sand/40"
-                value={selectedCategory?.name || forcedCategoryName}
-                readOnly
-              />
-              {creatingForcedCategory ? (
-                <p className="text-xs text-ink/50">Kategoriya yaratilmoqda...</p>
-              ) : null}
-            </div>
-          </div>
-        ) : (
+        {!(isPrayerMat || isOvalCarpet) && (
           <select
             className="input-field md:col-span-2"
             value={categoryId}

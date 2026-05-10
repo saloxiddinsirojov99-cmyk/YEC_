@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { copyText } from '@/utils/clipboard';
-import ContactMap from '@/components/ContactMap';
+import SingleBranchMap from '@/components/SingleBranchMap';
 
 export default function ContactPage() {
   const [copied, setCopied] = useState<string | null>(null);
@@ -45,9 +45,18 @@ export default function ContactPage() {
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.35em] text-slate-500">Bog&apos;lanish</p>
                 <h2 className="mt-2 font-serif text-3xl text-white">Biz bilan bog&apos;laning</h2>
-                <p className="mt-2 text-sm text-slate-400">
-                  Har bir murojaat tez ko&apos;rib chiqiladi. Telefon, Telegram yoki Instagram orqali yozing.
-                </p>
+                <div className="mt-4 space-y-4 text-sm leading-relaxed text-slate-400">
+                  <p>
+                    YEC Market jamoasi har doim sizga yordam berishga tayyor. Sizda mahsulotlarimiz, buyurtma jarayoni yoki yetkazib berish bo&apos;yicha savollar bo&apos;lsa, mutaxassislarimiz bilan bog&apos;lanishingiz mumkin.
+                  </p>
+                  <p>
+                    Biz mijozlarimizning fikr-mulohazalarini qadrlaymiz. Har bir murojaat biz uchun xizmat sifatini yanada yaxshilash imkoniyatidir. Quyidagi aloqa kanallari orqali haftaning istalgan kunida bizga murojaat qilishingiz mumkin.
+                  </p>
+                  <div className="flex items-center gap-3 py-2 px-4 rounded-xl bg-blue-500/5 border border-blue-500/10">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+                    <span className="text-xs font-medium text-blue-300">Tezkor javob: 15-30 daqiqa ichida</span>
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -120,43 +129,64 @@ export default function ContactPage() {
 
               <div className="rounded-2xl border border-white/5 bg-white/5 p-5 text-white">
                 <p className="text-xs font-bold uppercase tracking-[0.3em] text-slate-500">Manzillar</p>
-                <div className="mt-4 space-y-3">
-                  {[
-                    { name: '1. Olim Polvon filiali', url: 'https://www.google.com/maps/place/YEC,+Tashkent+Ring+Automobile+Road,+%D0%A2%D0%BE%D1%88%D0%BA%D0%B5%D0%BD%D1%82,+Tashkent,+Uzbekistan/@41.2294433,69.1730268,18z/data=!4m6!3m5!1s0x38ae631b59b6c191:0x470d9bab83508b45!8m2!3d41.2294433!4d69.1730268!16s%2Fg%2F11nmt3b09p?g_ep=Eg1tbF8yMDI2MDMwNF8wIOC7DCoASAJQAg%3D%3D' },
-                    { name: '2. Algoritim filiali', url: 'https://maps.app.goo.gl/4KcLqHxEzdk5U5gD8' }
-                  ].map((branch) => (
-                    <a
-                      key={branch.name}
-                      href={branch.url}
-                      className="group flex items-center justify-between rounded-2xl border border-white/5 bg-[#020617]/50 px-4 py-3 text-sm font-semibold text-slate-300 transition hover:-translate-y-0.5 hover:border-blue-500/30 hover:text-white"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {branch.name}
-                      <span className="opacity-0 transition-opacity group-hover:opacity-100">-&gt;</span>
-                    </a>
-                  ))}
+                <div className="mt-4 space-y-4">
+                  <div className="p-4 rounded-xl bg-[#020617]/50 border border-white/5">
+                    <p className="text-sm font-bold text-white mb-1">1. Olim Polvon filiali</p>
+                    <p className="text-xs text-slate-400 mb-3 leading-relaxed">Toshkent halqa yoʻli boʻylab, yirik gilamlar majmuasi. Keng assortiment va qulay to&apos;xtash joyi.</p>
+                    <a href="https://www.google.com/maps/dir/?api=1&destination=41.2294433,69.1730268" target="_blank" className="text-[10px] font-bold text-blue-400 uppercase tracking-widest hover:underline">Xaritada ochish -&gt;</a>
+                  </div>
+                  <div className="p-4 rounded-xl bg-[#020617]/50 border border-white/5">
+                    <p className="text-sm font-bold text-white mb-1">2. Algoritim filiali</p>
+                    <p className="text-xs text-slate-400 mb-3 leading-relaxed">Samarqand Darvoza ko&apos;chasi yo&apos;nalishidagi zamonaviy do&apos;konimiz. Eng so&apos;nggi kolleksiyalar markazi.</p>
+                    <a href="https://www.google.com/maps/dir/?api=1&destination=41.2621776,69.147668" target="_blank" className="text-[10px] font-bold text-blue-400 uppercase tracking-widest hover:underline">Xaritada ochish -&gt;</a>
+                  </div>
+                </div>
+                <div className="mt-6 pt-4 border-t border-white/5 text-center">
+                   <p className="text-[10px] text-slate-500 leading-relaxed italic">
+                     "Bizning maqsadimiz — uyingizga shinamlik va sharqona go&apos;zallik olib kirish."
+                   </p>
                 </div>
               </div>
             </div>
           </section>
 
           <section className="space-y-6">
-            <div className="rounded-[2.5rem] border border-white/10 bg-[#0B1120]/80 p-1 shadow-2xl backdrop-blur-md overflow-hidden">
-               <ContactMap />
+            <div className="space-y-4">
+              <div className="rounded-[2.25rem] border border-white/10 bg-[#0B1120]/80 p-5 shadow-2xl backdrop-blur-md">
+                <h3 className="text-white font-serif text-xl mb-3">1. Olim Polvon filiali</h3>
+                <div className="h-[280px] w-full overflow-hidden rounded-2xl">
+                  <SingleBranchMap 
+                    lat={41.2294433} 
+                    lng={69.1730268} 
+                    name="Olim Polvon filiali" 
+                    address="Toshkent halqa yoʻli, Olim Polvon bozori roʻparasida" 
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-[2.25rem] border border-white/10 bg-[#0B1120]/80 p-5 shadow-2xl backdrop-blur-md">
+                <h3 className="text-white font-serif text-xl mb-3">2. Algoritim filiali</h3>
+                <div className="h-[280px] w-full overflow-hidden rounded-2xl">
+                  <SingleBranchMap 
+                    lat={41.2621776} 
+                    lng={69.147668} 
+                    name="Algoritim filiali" 
+                    address="Samarqand Darvoza koʻchasi, Algoritim daxasi" 
+                  />
+                </div>
+              </div>
             </div>
             
             <div className="rounded-[2.25rem] border border-white/10 bg-[#0B1120]/80 p-8 shadow-2xl backdrop-blur-md">
               <h2 className="font-serif text-2xl text-white mb-4">Ish vaqti</h2>
               <div className="space-y-3">
                 <div className="flex justify-between items-center py-2 border-b border-white/5">
-                  <span className="text-slate-400">Dushanba - Shanba</span>
-                  <span className="text-white font-semibold">09:00 - 19:00</span>
+                  <span className="text-slate-400 font-medium">Dushanba - Yakshanba</span>
+                  <span className="text-blue-400 font-bold tracking-wider">08:00 - 21:00</span>
                 </div>
-                <div className="flex justify-between items-center py-2 border-b border-white/5">
-                  <span className="text-slate-400">Yakshanba</span>
-                  <span className="text-white font-semibold">10:00 - 17:00</span>
-                </div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest text-center mt-2">
+                  * Barcha filiallarimizda ish vaqti bir xil
+                </p>
               </div>
             </div>
           </section>

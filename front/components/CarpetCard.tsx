@@ -215,7 +215,7 @@ export default function CarpetCard({ carpet }: Props) {
               setImageSrc(FALLBACK_CARPET_IMAGE);
             }
           }}
-          className="h-full w-full object-cover transition-transform duration-700 ease-premium-in-out group-hover:scale-105"
+          className="h-full w-full object-contain bg-slate-50 transition-transform duration-700 ease-premium-in-out group-hover:scale-105"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
 

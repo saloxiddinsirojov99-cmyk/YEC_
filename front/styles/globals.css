@@ -228,6 +228,32 @@
   .btn-secondary {
     @apply inline-flex items-center justify-center rounded-2xl border-2 border-black/5 bg-white px-8 py-4 text-base font-bold text-ink shadow-[0_2px_10px_rgba(0,0,0,0.02)] transition-all hover:-translate-y-1 hover:border-black/10 hover:shadow-[0_8px_20px_rgba(0,0,0,0.06)] active:scale-[0.98] disabled:opacity-70 disabled:pointer-events-none;
   }
+
+  /* Catalog Heroes */
+  .catalog-hero {
+    @apply relative overflow-hidden rounded-[3rem] shadow-2xl;
+  }
+
+  .catalog-hero--oval {
+    background: linear-gradient(135deg, #4c0519 0%, #701a75 50%, #4a044e 100%);
+    position: relative;
+  }
+
+  .catalog-hero--oval::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 70% 30%, rgba(244, 114, 182, 0.25), transparent 60%);
+    pointer-events: none;
+  }
+
+  .catalog-hero-float {
+    @apply animate-pulse;
+  }
+
+  .oval-filter-card {
+    @apply bg-[#0B1120]/80 backdrop-blur-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.3)] rounded-[2.5rem];
+  }
 }
 
 @layer utilities {

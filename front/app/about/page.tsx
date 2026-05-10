@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import SingleBranchMap from '@/components/SingleBranchMap';
 
 const carouselImages = [
   {
@@ -195,72 +194,6 @@ export default function AboutPage() {
               </div>
             </div>
 
-          </div>
-        </section>
-
-        {/* Filiallar Section */}
-        <section className="mt-16 space-y-10">
-          <header className="text-center max-w-2xl mx-auto">
-            <h2 className="font-serif text-3xl sm:text-4xl text-white">Bizning filiallarimiz</h2>
-            <p className="mt-4 text-slate-400">
-              Sizga yaqin bo&apos;lgan filialimizga tashrif buyuring va gilamlarni o&apos;z ko&apos;zingiz bilan ko&apos;ring.
-            </p>
-          </header>
-
-          <div className="grid gap-8 md:grid-cols-2">
-            {[
-              {
-                name: 'Olim Polvon filiali',
-                lat: 41.2294433,
-                lng: 69.1730268,
-                address: 'Toshkent halqa yoʻli, Olim Polvon bozori roʻparasida',
-                phone: '+998 99 799 99 22',
-              },
-              {
-                name: 'Algoritim filiali',
-                lat: 41.2621776,
-                lng: 69.147668,
-                address: 'Samarqand Darvoza koʻchasi, Algoritim daxasi',
-                phone: '+998 99 107 99 22',
-              },
-            ].map((branch) => (
-              <div key={branch.name} className="flex flex-col bg-[#0B1120]/80 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] overflow-hidden shadow-2xl transition-all hover:border-blue-500/30">
-                <div className="h-[350px] w-full">
-                  <SingleBranchMap 
-                    lat={branch.lat} 
-                    lng={branch.lng} 
-                    name={branch.name} 
-                    address={branch.address} 
-                  />
-                </div>
-                <div className="p-8 space-y-6">
-                  <div>
-                    <h3 className="font-serif text-2xl text-white">{branch.name}</h3>
-                    <p className="mt-2 text-slate-400 text-sm leading-relaxed">{branch.address}</p>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Ish vaqti</p>
-                      <p className="text-sm font-semibold text-white">Har kuni</p>
-                      <p className="text-xs text-blue-400 mt-0.5">08:00 - 21:00</p>
-                    </div>
-                    <div className="p-4 rounded-2xl bg-white/5 border border-white/5">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">Aloqa</p>
-                      <p className="text-sm font-semibold text-white">{branch.phone}</p>
-                    </div>
-                  </div>
-
-                  <a 
-                    href={`https://www.google.com/maps/dir/?api=1&destination=${branch.lat},${branch.lng}`}
-                    target="_blank"
-                    className="flex items-center justify-center gap-2 w-full py-4 rounded-2xl bg-blue-600/10 border border-blue-500/30 text-blue-400 font-bold text-sm transition hover:bg-blue-600 hover:text-white"
-                  >
-                    Xaritada ko&apos;rish ->
-                  </a>
-                </div>
-              </div>
-            ))}
           </div>
         </section>
       </div>
