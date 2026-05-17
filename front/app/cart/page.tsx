@@ -145,9 +145,9 @@ export default function CartPage() {
                     isOutOfStock ? 'border-red-100 bg-red-50/30' : 'border-ink/5'
                   }`}
                 >
-                  <div className="flex flex-col gap-6 sm:flex-row">
+                  <div className="flex gap-4 sm:gap-6">
                     {/* Image Section */}
-                    <div className="relative h-32 w-full shrink-0 overflow-hidden rounded-xl bg-sand group-hover:shadow-md sm:w-44">
+                    <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-sand group-hover:shadow-md sm:h-32 sm:w-44">
                       <img
                         src={(item.image || '/placeholder-carpet.jpg') as string}
                         alt={item.name}

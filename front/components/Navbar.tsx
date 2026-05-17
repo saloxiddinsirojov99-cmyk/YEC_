@@ -253,21 +253,8 @@ export default function Navbar() {
   return (
     <header className="glass-nav sticky top-0 z-50 w-full">
       <div className="section-shell flex items-center gap-4 py-3 md:py-4">
-        {/* Mobile Menu Button (Hamburger) - Left Side */}
-        <button
-          onClick={() => setIsMenuOpen(!isMenuOpen)}
-          className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-ink/10 bg-white/80 text-ink shadow-sm transition-all active:scale-95 md:hidden"
-          aria-label="Menyuni ochish"
-        >
-          {isMenuOpen ? (
-            <X className="h-5 w-5 animate-in spin-in-90 duration-300" />
-          ) : (
-            <Menu className="h-5 w-5 animate-in fade-in duration-300" />
-          )}
-        </button>
-
-        {/* Brand Logo */}
-        <a href="/" className="group flex items-center gap-3">
+        {/* Brand Logo (Left Side - Restored exactly to original styling) */}
+        <a href="/" className="group -ml-1 flex items-center gap-3 sm:-ml-2 md:-ml-3">
           <div className="relative">
             <div className="absolute -inset-1 rounded-full bg-primary/20 blur opacity-0 transition group-hover:opacity-100" />
             <div className="relative inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-white ring-4 ring-primary shadow-[0_0_40px_rgba(0,180,255,0.3)] transition duration-500 hover:scale-110">
@@ -280,8 +267,9 @@ export default function Navbar() {
           </div>
         </a>
 
-        {/* Mobile Quick Cart Utility (Right Side) */}
-        <div className="flex items-center gap-2 ml-auto md:hidden animate-in fade-in duration-300">
+        {/* Mobile controls group (Right Side) */}
+        <div className="flex items-center gap-2.5 ml-auto md:hidden animate-in fade-in duration-300">
+          {/* Quick Cart Shortcut */}
           {links.find((l) => l.href === '/cart') && (
             <Link
               href="/cart"
@@ -295,50 +283,22 @@ export default function Navbar() {
               )}
             </Link>
           )}
+
+          {/* Hamburger Menu Button - Right Side */}
+          <button
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-ink/10 bg-white/80 text-ink shadow-sm transition-all active:scale-95"
+            aria-label="Menyuni ochish"
+          >
+            {isMenuOpen ? (
+              <X className="h-5 w-5 animate-in spin-in-90 duration-300" />
+            ) : (
+              <Menu className="h-5 w-5 animate-in fade-in duration-300" />
+            )}
+          </button>
         </div>
 
-        {/* Mobile Menu Dropdown Overlay */}
-        {isMenuOpen && (
-          <div className="fixed inset-0 top-[73px] z-[999] bg-gradient-to-b from-white/95 to-slate-50/98 backdrop-blur-lg animate-in fade-in slide-in-from-top-5 duration-300 md:hidden overflow-y-auto border-t border-ink/5 shadow-2xl">
-            <div className="section-shell py-6 flex flex-col gap-3">
-              {links.map((link) => {
-                const Icon = getLinkIcon(link.href);
-                const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
-                const isFavorites = link.href === '/sevimlilar';
 
-                return (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    onClick={() => setIsMenuOpen(false)}
-                    className={`flex items-center gap-4 px-5 py-4 rounded-2xl border font-bold text-base transition-all active:scale-[0.98] ${
-                      isActive
-                        ? 'border-primary/30 bg-primary/10 text-primary shadow-sm shadow-primary/5'
-                        : 'border-ink/5 bg-white/50 hover:bg-white text-ink/80 hover:text-ink'
-                    }`}
-                  >
-                    <div className={`flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 ${isActive ? 'bg-primary/20 text-primary' : 'text-ink/60'}`}>
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <span className="flex-1">{link.label}</span>
-                    
-                    {/* Badge support inside mobile drawer */}
-                    {link.href === '/cart' && cartCount > 0 ? (
-                      <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full bg-red-600 px-1.5 text-xs font-black text-white shadow">
-                        {cartCount}
-                      </span>
-                    ) : null}
-                    {link.href === '/admin' && ordersAlertCount > 0 ? (
-                      <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full bg-red-600 px-1.5 text-xs font-black text-white shadow">
-                        {ordersAlertCount}
-                      </span>
-                    ) : null}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Desktop nav */}
         <nav
@@ -387,6 +347,49 @@ export default function Navbar() {
           />
         </nav>
       </div>
+
+      {/* Mobile Menu Dropdown Overlay (Direct child of header, perfectly positioned at absolute top-full) */}
+      {isMenuOpen && (
+        <div className="absolute top-full left-0 right-0 z-[999] h-[calc(100vh-100%)] bg-gradient-to-b from-white/95 to-slate-50/98 backdrop-blur-lg animate-in fade-in slide-in-from-top-5 duration-300 md:hidden overflow-y-auto border-t border-ink/5 shadow-2xl">
+          <div className="section-shell py-6 flex flex-col gap-3">
+            {links.map((link) => {
+              const Icon = getLinkIcon(link.href);
+              const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
+              const isFavorites = link.href === '/sevimlilar';
+
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setIsMenuOpen(false)}
+                  className={`flex items-center gap-4 px-5 py-4 rounded-2xl border font-bold text-base transition-all active:scale-[0.98] ${
+                    isActive
+                      ? 'border-primary/30 bg-primary/10 text-primary shadow-sm shadow-primary/5'
+                      : 'border-ink/5 bg-white/50 hover:bg-white text-ink/80 hover:text-ink'
+                  }`}
+                >
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 ${isActive ? 'bg-primary/20 text-primary' : 'text-ink/60'}`}>
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <span className="flex-1">{link.label}</span>
+                  
+                  {/* Badge support inside mobile drawer */}
+                  {link.href === '/cart' && cartCount > 0 ? (
+                    <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full bg-red-600 px-1.5 text-xs font-black text-white shadow">
+                      {cartCount}
+                    </span>
+                  ) : null}
+                  {link.href === '/admin' && ordersAlertCount > 0 ? (
+                    <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full bg-red-600 px-1.5 text-xs font-black text-white shadow">
+                      {ordersAlertCount}
+                    </span>
+                  ) : null}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </header>
   );
 }
