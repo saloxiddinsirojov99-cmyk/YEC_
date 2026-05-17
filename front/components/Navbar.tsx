@@ -25,9 +25,8 @@ import {
 
 const guestLinks = [
   { href: '/', label: 'Bosh sahifa' },
-  { href: '/carpets', label: 'Gilamlar' },
+  { href: '/carpets', label: 'Qidiruv' },
   { href: '/joynamozlar', label: 'Joynamozlar' },
-  { href: '/sevimlilar', label: 'Sevimlilar' },
   { href: '/about', label: 'Biz haqimizda' },
   { href: '/contact', label: 'Aloqa uchun' },
   { href: '/login', label: 'Kirish' },
@@ -36,7 +35,7 @@ const guestLinks = [
 
 const userLinks = [
   { href: '/', label: 'Bosh sahifa' },
-  { href: '/carpets', label: 'Gilamlar' },
+  { href: '/carpets', label: 'Qidiruv' },
   { href: '/joynamozlar', label: 'Joynamozlar' },
   { href: '/sevimlilar', label: 'Sevimlilar' },
   { href: '/cart', label: 'Savat' },

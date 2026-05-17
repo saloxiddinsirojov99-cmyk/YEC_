@@ -7,6 +7,7 @@ import {
 import { User, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { generateTelegramUserJoinToken } from '../common/utils/telegram-link-token';
 
 @Injectable()
 export class UsersService {
@@ -109,6 +110,7 @@ export class UsersService {
         lng: true,
         createdAt: true,
         updatedAt: true,
+        telegramChatId: true,
         orders: {
           orderBy: { createdAt: 'desc' },
           include: {
@@ -135,7 +137,14 @@ export class UsersService {
       throw new NotFoundException('Profil topilmadi.');
     }
 
-    return user;
+    const tokenSecret = process.env.TELEGRAM_LINK_SECRET?.trim() || process.env.JWT_SECRET?.trim() || 'fallback-telegram-link-secret';
+    const telegramJoinToken = generateTelegramUserJoinToken(user.id, tokenSecret);
+
+    return {
+      ...user,
+      isTelegramLinked: Boolean(user.telegramChatId),
+      telegramJoinToken,
+    };
   }
 
   async updateProfile(userId: string, dto: UpdateProfileDto) {
@@ -178,6 +187,19 @@ export class UsersService {
         role: true,
         createdAt: true,
         updatedAt: true,
+      },
+    });
+  }
+
+  async findCouriers() {
+    return this.prisma.user.findMany({
+      where: { role: 'COURIER' },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        telegramChatId: true,
       },
     });
   }

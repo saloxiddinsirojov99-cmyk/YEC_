@@ -8,6 +8,16 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  const filteredUsers = users.filter((user) => {
+    const term = search.toLowerCase().trim();
+    if (!term) return true;
+    const nameMatch = (user.name ?? '').toLowerCase().includes(term);
+    const emailMatch = (user.email ?? '').toLowerCase().includes(term);
+    const phoneMatch = (user.phone ?? '').toLowerCase().includes(term);
+    return nameMatch || emailMatch || phoneMatch;
+  });
 
   const load = async () => {
     try {
@@ -46,9 +56,57 @@ export default function AdminUsersPage() {
   };
 
   return (
-    <div className="section-shell py-8">
-      <div className="flex items-center justify-between">
-        <h1 className="font-serif text-4xl text-ink">Foydalanuvchilar boshqaruvi</h1>
+    <div className="section-shell py-8 space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-sky-100/50 pb-4">
+        <h1 className="font-serif text-3xl md:text-4xl font-extrabold text-slate-800 leading-relaxed tracking-tight">
+          Foydalanuvchilar boshqaruvi
+        </h1>
+        
+        {/* Search Input Box */}
+        <div className="flex w-full max-w-md items-center gap-2.5 rounded-2xl border border-sky-100 bg-white px-4 py-3 shadow-sm transition hover:border-sky-300">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-sky-500"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Ism, email yoki telefon bo'yicha qidirish..."
+            className="w-full bg-transparent text-sm font-semibold text-ink placeholder-slate-400 outline-none"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="text-slate-400 hover:text-slate-600 focus:outline-none"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {error ? (
@@ -73,7 +131,7 @@ export default function AdminUsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-sky-100/70">
-                {users.map((user, index) => (
+                {filteredUsers.map((user, index) => (
                   <tr
                     key={user.id}
                     className={`${index % 2 === 0 ? 'bg-white/80' : 'bg-sky-50/70'} transition-colors hover:bg-emerald-50/60`}
@@ -94,17 +152,19 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="px-4 py-3">
                       {user.role === 'SUPERADMIN' ? (
-                        <span className="inline-flex rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700">
-                          SUPERADMIN
+                        <span className="inline-flex rounded-full bg-purple-100 border border-purple-200/50 px-2.5 py-1 text-xs font-bold text-purple-700 shadow-sm">
+                          Bosh Admin (SUPERADMIN)
                         </span>
                       ) : (
                         <select
-                          value={user.role}
-                          onChange={(e) => void updateRole(user.id, e.target.value)}
-                          className="rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-semibold text-ink focus:outline-none focus:ring-2 focus:ring-primary/30"
+                           value={user.role}
+                           onChange={(e) => void updateRole(user.id, e.target.value)}
+                           className="rounded-xl border border-sky-200 bg-sky-50/70 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-sky-400 focus:outline-none focus:ring-4 focus:ring-sky-500/10 cursor-pointer"
                         >
-                          <option value="CUSTOMER">CUSTOMER</option>
-                          <option value="ADMIN">ADMIN</option>
+                          <option value="CUSTOMER">Mijoz (CUSTOMER)</option>
+                          <option value="SELLER">Sotuvchi (SELLER)</option>
+                          <option value="COURIER">Kuryer (COURIER)</option>
+                          <option value="ADMIN">Admin (ADMIN)</option>
                         </select>
                       )}
                     </td>
@@ -123,7 +183,7 @@ export default function AdminUsersPage() {
               </tbody>
             </table>
           </div>
-          {users.length === 0 && (
+          {filteredUsers.length === 0 && (
             <div className="p-6 text-center text-ink/60">
               Foydalanuvchilar topilmadi
             </div>

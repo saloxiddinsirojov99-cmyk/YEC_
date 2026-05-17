@@ -31,7 +31,7 @@ export default function LoginPage() {
 
       const response = await login({ email: email.trim().toLowerCase(), password });
       saveTokens(response.accessToken, response.refreshToken);
-      router.push('/profile');
+      window.location.href = '/profile';
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -50,7 +50,7 @@ export default function LoginPage() {
         password,
       });
       saveTokens(response.accessToken, response.refreshToken);
-      router.push('/profile');
+      window.location.href = '/profile';
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {

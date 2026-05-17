@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { api, formatPrice, getErrorMessage } from '@/services/api';
 import { formatOrderNumber, formatOrderStatus } from '@/utils/format';
 import type { OrderStatus } from '@/types/order';
-import OrderStatusModal from '@/components/admin/OrderStatusModal';
+import OrderStatusModal, { CourierOption } from '@/components/admin/OrderStatusModal';
 
 type OrderItem = {
   id: string;
@@ -80,13 +80,14 @@ export default function AdminOrdersPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
-
+  const [couriers, setCouriers] = useState<CourierOption[]>([]);
 
   const [updatingOrder, setUpdatingOrder] = useState<{ id: string; targetStatus: OrderStatus; currentStatus: OrderStatus } | null>(null);
 
   useEffect(() => {
     setMounted(true);
     void loadStats();
+    void loadCouriers();
 
     // Subscribe admin to push notifications
     const subscribe = async () => {
@@ -116,6 +117,14 @@ export default function AdminOrdersPage() {
     }
   };
 
+  const loadCouriers = async () => {
+    try {
+      const { data } = await api.get<CourierOption[]>('/users/couriers');
+      setCouriers(data);
+    } catch {
+      // ignore — not critical
+    }
+  };
 
   const loadOrders = async () => {
     try {
@@ -136,12 +145,22 @@ export default function AdminOrdersPage() {
     }
   };
 
-  const handleUpdateStatus = async (data: { status: OrderStatus; deliveryDate?: string; explanation?: string; cancelReason?: string }) => {
+  const handleUpdateStatus = async (data: {
+    status: OrderStatus;
+    deliveryDate?: string;
+    explanation?: string;
+    cancelReason?: string;
+    courierId?: string;
+  }) => {
     if (!updatingOrder) return;
     try {
       await api.patch(`/orders/${updatingOrder.id}/status`, data);
       void loadOrders();
       void loadStats();
+      if (data.status === 'ON_WAY') {
+        // Reload couriers in case any changed
+        void loadCouriers();
+      }
     } catch (err) {
       alert(getErrorMessage(err));
     }
@@ -204,8 +223,6 @@ export default function AdminOrdersPage() {
         </div>
       </div>
 
-
-
       {error ? (
         <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -233,6 +250,7 @@ export default function AdminOrdersPage() {
                   </div>
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-ink/30">Sana</p>
+                    {/* suppressHydrationWarning prevents React #418 hydration mismatch on dates */}
                     <p className="text-sm font-medium text-ink" suppressHydrationWarning>
                       {mounted ? new Date(order.createdAt).toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '--'}
                     </p>
@@ -295,8 +313,8 @@ export default function AdminOrdersPage() {
                       <p className="text-sm text-ink/75">Tel 2: {order.phone2}</p>
                     ) : null}
                     {order.deliveryDate && (
-                      <p className="text-sm font-bold text-primary">
-                        Yetkazib berish sanasi: {new Date(order.deliveryDate).toLocaleDateString('uz-UZ')}
+                      <p className="text-sm font-bold text-primary" suppressHydrationWarning>
+                        Yetkazib berish sanasi: {mounted ? new Date(order.deliveryDate).toLocaleDateString('uz-UZ') : '--'}
                       </p>
                     )}
                     <p className="text-sm text-ink/75">{order.address}</p>
@@ -370,6 +388,7 @@ export default function AdminOrdersPage() {
         orderCreatedAt={orders.find((order) => order.id === updatingOrder?.id)?.createdAt ?? null}
         currentStatus={updatingOrder?.currentStatus ?? 'PENDING'}
         targetStatus={updatingOrder?.targetStatus ?? 'PENDING'}
+        couriers={couriers}
       />
     </div>
   );

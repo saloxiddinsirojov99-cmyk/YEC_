@@ -22,8 +22,8 @@ import {
 const fallbackCategoryImage =
   'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=900&q=80';
 
-const PRAYER_MAT_PREVIEW_LIMIT = 4;
-const OVAL_CARPET_PREVIEW_LIMIT = 4;
+const PRAYER_MAT_PREVIEW_LIMIT = 12;
+const OVAL_CARPET_PREVIEW_LIMIT = 12;
 const POPULAR_MOBILE_LIMIT = 4;
 const POPULAR_DESKTOP_LIMIT = 4;
 const MOBILE_MEDIA_QUERY = '(max-width: 767px)';
@@ -363,11 +363,8 @@ export default function HomePage() {
                 Barchasini ko'rish <span>-&gt;</span>
               </Link>
             </SectionHeading>
-            <div className="md:hidden">
+            <div>
               <CarpetCarousel carpets={prayerMats} loading={loading} />
-            </div>
-            <div className="hidden md:block">
-              <CarpetList carpets={prayerMats} loading={loading} />
             </div>
           </div>
         </SectionReveal>
@@ -426,11 +423,8 @@ export default function HomePage() {
                 Barchasini ko'rish <span>-&gt;</span>
               </Link>
             </SectionHeading>
-            <div className="md:hidden">
+            <div>
               <CarpetCarousel carpets={ovalCarpets} loading={loading} />
-            </div>
-            <div className="hidden md:block">
-              <CarpetList carpets={ovalCarpets} loading={loading} />
             </div>
           </div>
         </SectionReveal>

@@ -62,6 +62,15 @@ export class UsersController {
     return this.usersService.getAdminStats();
   }
 
+  @ApiOperation({ summary: "Kuryerlar ro'yxati (admin)" })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('couriers')
+  findCouriers() {
+    return this.usersService.findCouriers();
+  }
+
   @ApiOperation({ summary: "Foydalanuvchilar ro'yxati (admin)" })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)

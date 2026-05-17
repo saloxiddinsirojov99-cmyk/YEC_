@@ -42,6 +42,7 @@ function CarpetsContent() {
     maxPrice: '',
     size: '',
     material: '',
+    sortBy: 'standard',
   };
 
   const [filters, setFilters] = useState<CarpetFiltersState>(initialFilters);
@@ -88,6 +89,7 @@ function CarpetsContent() {
         size: state.size || undefined,
         material: state.material || undefined,
         kind: state.kind,
+        sortBy: state.sortBy === 'standard' ? undefined : state.sortBy,
       });
       const nextItems = res.items ?? [];
       setCarpets((prev) => (append ? [...prev, ...nextItems] : nextItems));
@@ -153,7 +155,6 @@ function CarpetsContent() {
 
   useEffect(() => {
     if (!limitReady || suppressAutoSearchRef.current) return;
-
     const timer = window.setTimeout(() => {
       setAppliedFilters(filters);
       void loadCarpets(filters, 1, false);
@@ -161,6 +162,8 @@ function CarpetsContent() {
 
     return () => window.clearTimeout(timer);
   }, [filters, limitReady]);
+
+
 
   const heroTheme = useMemo(() => {
     if (filters.kind === 'oval') return { bg: 'from-fuchsia-600 to-purple-800', accent: 'text-fuchsia-200' };
@@ -223,18 +226,16 @@ function CarpetsContent() {
         </SectionReveal>
 
         <div className="space-y-8">
-           <div className="flex items-center justify-between border-b border-slate-100 pb-8">
-              <div className="flex items-center gap-4">
-                 <h2 className="font-serif text-4xl font-bold text-slate-900">
-                   {filters.search ? `'${filters.search}' natijalari` : 'Barcha mahsulotlar'}
-                 </h2>
-                 {!loading && <span className="rounded-full bg-slate-100 px-4 py-1.5 text-sm font-bold text-slate-500">{total} ta</span>}
-              </div>
-              <div className="flex items-center gap-2 text-slate-400">
-                 <ArrowUpDown className="h-5 w-5" />
-                 <span className="text-sm font-medium">Saralangan</span>
-              </div>
-           </div>
+            <div className="flex items-center justify-between border-b border-slate-100 pb-6">
+               <h2 className="font-serif text-2xl font-bold text-slate-800">
+                 {filters.search ? `'${filters.search}' qidiruv natijalari` : 'Barcha premium mahsulotlar'}
+               </h2>
+               {!loading && (
+                 <span className="rounded-full bg-slate-100 px-4 py-1.5 text-sm font-bold text-slate-500">
+                   {total} ta gilam
+                 </span>
+               )}
+            </div>
 
            <CarpetList carpets={carpets} loading={loading} emptyText="Afsuski, ushbu filtrlar bo'yicha mahsulot topilmadi." />
 

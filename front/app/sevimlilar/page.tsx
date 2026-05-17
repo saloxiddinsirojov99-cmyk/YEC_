@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Heart, Home, ArrowLeft, Sparkles, Trash2 } from 'lucide-react';
 import CarpetList from '@/components/CarpetList';
@@ -9,13 +9,23 @@ import { getErrorMessage } from '@/services/api';
 import type { Carpet } from '@/types/carpet';
 import { SectionReveal, SectionHeading } from '@/components/ui/animation-wrapper';
 import { toast } from '@/components/ui/Toast';
+import { getToken } from '@/services/auth.service';
 
 export default function FavoritesPage() {
   const [carpets, setCarpets] = useState<Carpet[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
+  const hasToken = useMemo(() => (mounted ? Boolean(getToken()) : false), [mounted]);
 
   const loadFavorites = async () => {
+    if (!getToken()) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError('');
@@ -34,16 +44,41 @@ export default function FavoritesPage() {
   };
 
   useEffect(() => {
-    loadFavorites();
+    if (hasToken) {
+      loadFavorites();
+    }
     
     // Listen for like changes to refresh the list
     const handleLikeChanged = () => {
-      loadFavorites();
+      if (getToken()) {
+        loadFavorites();
+      }
     };
     
     window.addEventListener('yec-like-changed', handleLikeChanged);
     return () => window.removeEventListener('yec-like-changed', handleLikeChanged);
-  }, []);
+  }, [hasToken]);
+
+  if (!hasToken) {
+    return (
+      <div className="min-h-screen bg-slate-50/50 py-20">
+        <div className="section-shell">
+          <div className="mx-auto max-w-xl rounded-[2.5rem] bg-gradient-to-br from-pink-50 to-rose-50/70 p-8 shadow-[0_32px_64px_rgba(244,63,94,0.06)] border border-pink-100/50 text-center space-y-6">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-rose-50 text-rose-500">
+               <Heart className="h-10 w-10 animate-pulse text-rose-500 fill-rose-500/10" />
+            </div>
+            <h1 className="font-serif text-3xl font-bold text-slate-800">Sevimlilar</h1>
+            <p className="text-slate-600 leading-relaxed">
+              Sevimlilaringizni ko&apos;rish va saqlash uchun avval tizimga kiring.
+            </p>
+            <Link href="/login" className="btn-premium inline-block px-10 py-4 shadow-lg shadow-rose-500/20 hover:scale-105 active:scale-95 transition-all">
+              Tizimga kirish
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50/50 pb-20">
@@ -88,7 +123,7 @@ export default function FavoritesPage() {
       </section>
 
       <div className="section-shell -mt-10 relative z-20">
-        <div className="rounded-[2.5rem] bg-white p-8 shadow-[0_32px_64px_rgba(0,0,0,0.06)] md:p-12">
+        <div className="rounded-[2.5rem] bg-gradient-to-br from-pink-50 to-rose-50/70 p-8 shadow-[0_32px_64px_rgba(244,63,94,0.06)] md:p-12 border border-pink-100/50">
           {error ? (
             <div className="py-20 text-center space-y-6">
               <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-rose-50 text-rose-500">

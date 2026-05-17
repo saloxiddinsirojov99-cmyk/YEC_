@@ -1336,10 +1336,16 @@ export class TelegramUpdate {
     const isAdmin = await this.isAdmin(ctx);
     const isCourier = await this.isCourier(ctx);
 
-    if (!isSeller && !isCourier) {
+    // Allow customers to respond to delivery confirmation buttons
+    const isCustomerCallback =
+      data.startsWith('user_confirm_arrival_') ||
+      data.startsWith('user_reject_arrival_');
+
+    if (!isSeller && !isCourier && !isCustomerCallback) {
       await ctx.reply('Bu amal faqat adminlar, sotuvchilar yoki kuryerlar uchun.');
       return;
     }
+
 
     if (data === 'get_invite_link' || data === 'new_orders' || data.startsWith('approve_admin_') || data.startsWith('reject_admin_')) {
       if (!isAdmin) {
@@ -1503,19 +1509,71 @@ export class TelegramUpdate {
         data: { status: 'DELIVERED' },
       });
 
-      await ctx.reply("Bizning gilamlardan xarid qilganingiz uchun rahmat!");
+      // Thank-you sticker (animated celebration sticker)
+      const thankYouSticker = 'CAACAgIAAxkBAAEBmZ1mX7Z2V8T2XtQJ5bHQ3dT5J4TqUAAC2BQAAiHkaEuLxhfI7g4fGzUE';
+
+      // Find customer chatId
+      const customerUser = await this.prisma.user.findUnique({
+        where: { id: order.customerId },
+        select: { telegramChatId: true },
+      });
+      if (customerUser?.telegramChatId) {
+        try {
+          await this.telegramService.sendSticker(customerUser.telegramChatId, thankYouSticker);
+        } catch { /* ignore */ }
+        await this.telegramService.sendRaw(
+          customerUser.telegramChatId,
+          `🎉 <b>Katta rahmat!</b>\n\n<b>#${formatOrderNumber(order.id, order.createdAt)}</b> buyurtmangizni qabul qilganingiz tasdiqlandi!\n\nYEC Market gilamlaridan xarid qilganingiz uchun minnatdormiz. Sifatli xizmatimizdan yana foydalanishni kutib qolamiz! 🌟`,
+        );
+      }
 
       if (order.courier?.telegramChatId) {
         await this.telegramService.sendRaw(
           order.courier.telegramChatId,
-          `#${formatOrderNumber(order.id, order.createdAt)} buyurtma mijoz tomonidan tasdiqlandi. Rahmat!`,
+          `✅ <b>#${formatOrderNumber(order.id, order.createdAt)}</b> buyurtma mijoz tomonidan tasdiqlandi. Rahmat!`,
         );
       }
       return;
     }
 
     if (data.startsWith('user_reject_arrival_')) {
-      await ctx.reply("Tushunarli. Agar muammo bo'lsa, admin bilan bog'laning.");
+      const orderId = data.replace('user_reject_arrival_', '');
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { courier: true },
+      });
+
+      if (!order) {
+        await ctx.reply("Buyurtma topilmadi.");
+        return;
+      }
+
+      // Inform the customer
+      await ctx.reply(
+        `⚠️ Tushundik. Adminlarga va kuryerga xabar yuborildi. Muammoni tezda hal qilamiz!`,
+      );
+
+      // Notify courier
+      if (order.courier?.telegramChatId) {
+        await this.telegramService.sendRaw(
+          order.courier.telegramChatId,
+          `⚠️ <b>Ogohlantirish!</b>\n\n<b>#${formatOrderNumber(order.id, order.createdAt)}</b> buyurtma mijoz tomonidan <b>tasdiqlanmadi</b>.\n\nMijoz bilan bog'laning va qayta tasdiqlashni so'rang.`,
+          {
+            inline_keyboard: [
+              [{
+                text: '✅ Yetkazildi (qayta)',
+                callback_data: `courier_delivered_${order.id}`,
+              }],
+            ],
+          },
+        );
+      }
+
+      // Notify all admins
+      const orderNumber = formatOrderNumber(order.id, order.createdAt);
+      await this.telegramService.notifyAdmins(
+        `⚠️ <b>Muammo!</b> #${orderNumber} buyurtma mijoz tomonidan tasdiqlanmadi.\n\nMijoz: ${order.customerName}\nTel: ${order.phone}\nManzil: ${order.address}\nKuryer: ${order.courierName ?? 'Belgilanmagan'}`,
+      );
       return;
     }
   }

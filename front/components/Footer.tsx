@@ -43,13 +43,31 @@ export default function Footer() {
           <h4 className="text-sm font-bold uppercase tracking-wider text-accent drop-shadow-[0_0_8px_hsla(var(--accent),0.3)]">Yo&apos;nalishlar</h4>
           <div className="mt-4 flex flex-col gap-3 text-sm">
             <Link href="/carpets" className="text-white/90 transition-all hover:translate-x-1 hover:text-accent">
-              Gilamlar
+              Barcha gilamlar
+            </Link>
+            <Link href="/joynamozlar" className="text-white/90 transition-all hover:translate-x-1 hover:text-accent">
+              Joynamozlar
+            </Link>
+            <Link href="/ovalni-gilamlar" className="text-white/90 transition-all hover:translate-x-1 hover:text-accent">
+              Ovalni gilamlar
+            </Link>
+            <Link href="/mashhur-gilamlar" className="text-white/90 transition-all hover:translate-x-1 hover:text-accent">
+              Mashhur gilamlar
+            </Link>
+            <Link href="/yangi-gilamlar" className="text-white/90 transition-all hover:translate-x-1 hover:text-accent">
+              Yangi gilamlar
             </Link>
             <Link href="/about" className="text-white/90 transition-all hover:translate-x-1 hover:text-accent">
               Biz haqimizda
             </Link>
             <Link href="/contact" className="text-white/90 transition-all hover:translate-x-1 hover:text-accent">
               Aloqa uchun
+            </Link>
+            <Link href="/sevimlilar" className="text-white/90 transition-all hover:translate-x-1 hover:text-accent">
+              Sevimlilar
+            </Link>
+            <Link href="/cart" className="text-white/90 transition-all hover:translate-x-1 hover:text-accent">
+              Savat
             </Link>
           </div>
         </div>

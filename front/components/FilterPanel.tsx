@@ -8,6 +8,7 @@ export type CarpetFiltersState = {
   maxPrice: string;
   size: string;
   material: string;
+  sortBy: string;
 };
 
 type Props = {
@@ -63,15 +64,16 @@ export default function FilterPanel({
             <option value="prayer">Joynamozlar</option>
           </select>
 
-          <input
-            value={filters.search || ''}
-            onChange={(event) =>
-              onChange({ ...filters, search: sanitizeNameSearch(event.target.value) })
-            }
-            type="text"
-            placeholder={namePlaceholder}
-            className="input-field md:col-span-1"
-          />
+          <select
+            value={filters.sortBy || 'standard'}
+            onChange={(event) => onChange({ ...filters, sortBy: event.target.value })}
+            className="input-field md:col-span-1 font-bold text-slate-700 bg-white cursor-pointer"
+          >
+            <option value="standard">Standart / Oxirgilari</option>
+            <option value="popular">Mashhurlar (Saralangan)</option>
+            <option value="price_desc">Qimmatdan arzonga</option>
+            <option value="price_asc">Arzondan qimmatga</option>
+          </select>
 
           {filters.kind === 'carpet' ? (
             <select
@@ -89,6 +91,16 @@ export default function FilterPanel({
                 ))}
             </select>
           ) : null}
+
+          <input
+            value={filters.search || ''}
+            onChange={(event) =>
+              onChange({ ...filters, search: sanitizeNameSearch(event.target.value) })
+            }
+            type="text"
+            placeholder={namePlaceholder}
+            className="input-field hidden md:block md:col-span-1"
+          />
 
           <input
             value={filters.material || ''}
@@ -144,6 +156,16 @@ export default function FilterPanel({
             Qo&apos;shimcha filtrlar
           </summary>
           <div className="mt-3 grid grid-cols-2 gap-2">
+            <input
+              value={filters.search || ''}
+              onChange={(event) =>
+                onChange({ ...filters, search: sanitizeNameSearch(event.target.value) })
+              }
+              type="text"
+              placeholder={namePlaceholder}
+              className="input-field col-span-2"
+            />
+
             <input
               value={filters.material || ''}
               onChange={(event) => onChange({ ...filters, material: event.target.value })}

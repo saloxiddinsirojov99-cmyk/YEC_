@@ -487,8 +487,14 @@ export class CarpetsService implements OnModuleInit {
       where.AND = [...(where.AND ?? []), ...andConditions];
     }
 
-    const orderBy: any =
-      query.sortBy === 'popular' ? { likes: 'desc' } : { createdAt: 'desc' };
+    let orderBy: any = { createdAt: 'desc' };
+    if (query.sortBy === 'popular') {
+      orderBy = { likes: 'desc' };
+    } else if (query.sortBy === 'price_asc') {
+      orderBy = { price: 'asc' };
+    } else if (query.sortBy === 'price_desc') {
+      orderBy = { price: 'desc' };
+    }
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.carpet.findMany({

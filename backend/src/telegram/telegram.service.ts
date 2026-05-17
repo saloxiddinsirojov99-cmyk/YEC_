@@ -46,6 +46,14 @@ export class TelegramService {
     }
   }
 
+  async sendSticker(chatId: string, stickerId: string) {
+    try {
+      await this.bot.telegram.sendSticker(chatId, stickerId);
+    } catch (e) {
+      this.logger.error(`Error sending sticker to ${chatId}: ${e.message}`);
+    }
+  }
+
   async sendRaw(chatId: string, text: string, replyMarkup?: any) {
     try {
       await this.bot.telegram.sendMessage(chatId, text, {
@@ -57,7 +65,7 @@ export class TelegramService {
     }
   }
 
-  async notifyAdmins(message: string, location?: { lat: number; lng: number }) {
+  async notifyAdmins(message: string, location?: { lat: number; lng: number }, replyMarkup?: any) {
     if (!this.configService.get('TELEGRAM_BOT_TOKEN')) {
       return;
     }
@@ -74,6 +82,7 @@ export class TelegramService {
         try {
           await this.bot.telegram.sendMessage(admin.telegramChatId, message, {
             parse_mode: 'HTML',
+            reply_markup: replyMarkup,
           });
           if (location) {
             await this.sendLocation(
