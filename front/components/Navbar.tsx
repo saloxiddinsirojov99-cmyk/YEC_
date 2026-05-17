@@ -21,6 +21,8 @@ import {
   ShoppingCart,
   User,
   UserPlus,
+  Menu,
+  X,
 } from 'lucide-react';
 
 const guestLinks = [
@@ -51,6 +53,7 @@ export default function Navbar() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [ordersAlertCount, setOrdersAlertCount] = useState(0);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [indicator, setIndicator] = useState({ left: 0, width: 0, visible: false });
   const navRef = useRef<HTMLDivElement | null>(null);
   const mobileNavRef = useRef<HTMLDivElement | null>(null);
@@ -108,6 +111,7 @@ export default function Navbar() {
     if (mounted) {
       syncAuth();
       syncCart();
+      setIsMenuOpen(false);
     }
   }, [pathname, mounted]);
 
@@ -249,7 +253,21 @@ export default function Navbar() {
   return (
     <header className="glass-nav sticky top-0 z-50 w-full">
       <div className="section-shell flex items-center gap-4 py-3 md:py-4">
-        <a href="/" className="group -ml-1 flex items-center gap-3 sm:-ml-2 md:-ml-3">
+        {/* Mobile Menu Button (Hamburger) - Left Side */}
+        <button
+          onClick={() => setIsMenuOpen(!isMenuOpen)}
+          className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-ink/10 bg-white/80 text-ink shadow-sm transition-all active:scale-95 md:hidden"
+          aria-label="Menyuni ochish"
+        >
+          {isMenuOpen ? (
+            <X className="h-5 w-5 animate-in spin-in-90 duration-300" />
+          ) : (
+            <Menu className="h-5 w-5 animate-in fade-in duration-300" />
+          )}
+        </button>
+
+        {/* Brand Logo */}
+        <a href="/" className="group flex items-center gap-3">
           <div className="relative">
             <div className="absolute -inset-1 rounded-full bg-primary/20 blur opacity-0 transition group-hover:opacity-100" />
             <div className="relative inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-white ring-4 ring-primary shadow-[0_0_40px_rgba(0,180,255,0.3)] transition duration-500 hover:scale-110">
@@ -262,46 +280,65 @@ export default function Navbar() {
           </div>
         </a>
 
-        {/* Mobile nav */}
-        <div className="relative min-w-0 flex-1 md:hidden">
-          <nav
-            ref={mobileNavRef}
-            className="flex w-full min-w-0 items-center justify-end gap-2.5 overflow-x-auto overflow-y-visible px-1 pt-1 pb-1 scrollbar-hide"
-          >
-            {links.map((link) => {
-              const Icon = getLinkIcon(link.href);
-              const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
-              const isFavorites = link.href === '/sevimlilar';
-
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  title={link.label}
-                  aria-label={link.label}
-                  className={`relative inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border text-ink transition-all active:scale-95 ${
-                    isActive
-                      ? 'border-primary/30 bg-primary/10 text-primary'
-                      : 'border-ink/10 bg-white/80 hover:bg-white'
-                  } ${isFavorites ? 'fav-nav-pill' : ''}`}
-                >
-                  <Icon className="h-5 w-5" />
-                  {link.href === '/cart' && cartCount > 0 ? (
-                    <span className="absolute right-0 top-0 z-20 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white shadow ring-2 ring-white">
-                      {cartCount}
-                    </span>
-                  ) : null}
-                  {link.href === '/admin' && ordersAlertCount > 0 ? (
-                    <span className="absolute right-0 top-0 z-20 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white shadow ring-2 ring-white">
-                      {ordersAlertCount}
-                    </span>
-                  ) : null}
-                </Link>
-              );
-            })}
-          </nav>
-
+        {/* Mobile Quick Cart Utility (Right Side) */}
+        <div className="flex items-center gap-2 ml-auto md:hidden animate-in fade-in duration-300">
+          {links.find((l) => l.href === '/cart') && (
+            <Link
+              href="/cart"
+              className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-ink/10 bg-white/80 text-ink shadow-sm transition-all active:scale-95"
+            >
+              <ShoppingCart className="h-5 w-5" />
+              {cartCount > 0 && (
+                <span className="absolute -right-1 -top-1 z-20 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white shadow ring-2 ring-white">
+                  {cartCount}
+                </span>
+              )}
+            </Link>
+          )}
         </div>
+
+        {/* Mobile Menu Dropdown Overlay */}
+        {isMenuOpen && (
+          <div className="fixed inset-0 top-[73px] z-[999] bg-gradient-to-b from-white/95 to-slate-50/98 backdrop-blur-lg animate-in fade-in slide-in-from-top-5 duration-300 md:hidden overflow-y-auto border-t border-ink/5 shadow-2xl">
+            <div className="section-shell py-6 flex flex-col gap-3">
+              {links.map((link) => {
+                const Icon = getLinkIcon(link.href);
+                const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
+                const isFavorites = link.href === '/sevimlilar';
+
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setIsMenuOpen(false)}
+                    className={`flex items-center gap-4 px-5 py-4 rounded-2xl border font-bold text-base transition-all active:scale-[0.98] ${
+                      isActive
+                        ? 'border-primary/30 bg-primary/10 text-primary shadow-sm shadow-primary/5'
+                        : 'border-ink/5 bg-white/50 hover:bg-white text-ink/80 hover:text-ink'
+                    }`}
+                  >
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 ${isActive ? 'bg-primary/20 text-primary' : 'text-ink/60'}`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <span className="flex-1">{link.label}</span>
+                    
+                    {/* Badge support inside mobile drawer */}
+                    {link.href === '/cart' && cartCount > 0 ? (
+                      <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full bg-red-600 px-1.5 text-xs font-black text-white shadow">
+                        {cartCount}
+                      </span>
+                    ) : null}
+                    {link.href === '/admin' && ordersAlertCount > 0 ? (
+                      <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full bg-red-600 px-1.5 text-xs font-black text-white shadow">
+                        {ordersAlertCount}
+                      </span>
+                    ) : null}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Desktop nav */}
         <nav

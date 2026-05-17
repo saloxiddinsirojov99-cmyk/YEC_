@@ -1299,13 +1299,38 @@ export default function CheckoutPage() {
       )}
 
       {(error || promoWarning) ? (
-        <div className="pointer-events-none fixed right-4 top-4 z-[11000]">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 md:bottom-8 md:right-8 md:left-auto md:translate-x-0 z-[11000] w-[calc(100%-2rem)] max-w-md pointer-events-auto animate-in fade-in slide-in-from-bottom-5 duration-300">
           <div
             role="alert"
             aria-live="polite"
-            className="max-w-sm rounded-xl border border-red-200 bg-red-500 px-4 py-3 text-sm font-semibold text-white shadow-[0_18px_45px_rgba(239,68,68,0.45)] animate-in fade-in slide-in-from-top-3 duration-300"
+            className="flex items-center gap-3 rounded-2xl border border-red-500/30 bg-gradient-to-r from-red-600 to-rose-600 p-4 text-white shadow-[0_20px_50px_rgba(220,38,38,0.4)]"
           >
-            {error || promoWarning}
+            {/* Warning Icon */}
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/20">
+              <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            
+            {/* Error Message */}
+            <div className="flex-1">
+              <p className="text-xs text-white/80 font-medium uppercase tracking-wider">Xatolik yuz berdi</p>
+              <p className="text-sm font-bold leading-snug">{error || promoWarning}</p>
+            </div>
+
+            {/* Close Button */}
+            <button
+              onClick={() => {
+                setError('');
+                setPromoWarning('');
+              }}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/10 hover:bg-white/20 transition-colors active:scale-90"
+              aria-label="Yopish"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         </div>
       ) : null}
