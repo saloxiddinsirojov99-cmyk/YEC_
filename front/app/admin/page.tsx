@@ -109,6 +109,20 @@ export default function AdminPage() {
           </Link>
 
           <Link 
+            href="/admin/hero" 
+            className="group relative flex flex-col items-start p-8 rounded-[2.5rem] bg-rose-600 text-white transition hover:-translate-y-1 hover:shadow-2xl overflow-hidden"
+          >
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:bg-white/20 transition-colors" />
+            <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center mb-6">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+              </svg>
+            </div>
+            <span className="text-xl font-bold">Kirish animatsiyasi</span>
+            <p className="mt-2 text-sm text-white/60">Saytga kirilganda ko&apos;rinadigan bosh sahifa animatsiyasidagi gilamlarni qo&apos;lda tahrirlash.</p>
+          </Link>
+
+          <Link 
             href="/admin/discounts" 
             className="group relative flex flex-col items-start p-8 rounded-[2.5rem] bg-amber-500 text-white transition hover:-translate-y-1 hover:shadow-2xl overflow-hidden"
           >

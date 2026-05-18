@@ -125,6 +125,7 @@ export default function CreateAdminCarpetPage() {
   const [previews, setPreviews] = useState<string[]>([]);
   const [existingImageUrls, setExistingImageUrls] = useState<string[]>([]);
   const [description, setDescription] = useState(initialDescription);
+  const [showInHero, setShowInHero] = useState(false);
   const [designCode, setDesignCode] = useState(''); // Gul kodi
   const [categoryId, setCategoryId] = useState(initialCategoryId);
   const [m2LookupLoading, setM2LookupLoading] = useState(false);
@@ -214,8 +215,9 @@ export default function CreateAdminCarpetPage() {
         setMaterialAutoManaged(
           AUTO_MANAGED_MATERIALS.includes((existing.material ?? '').trim()),
         );
-        setCategoryId(existing.categoryId ?? '');
-        setDescription(existing.description ?? '');
+        const isHero = (existing.description ?? '').includes('[HERO]');
+        setShowInHero(isHero);
+        setDescription((existing.description ?? '').replace('[HERO]', '').trim());
         setDesignCode(existing.designCode ?? '');
         setStock(String(Math.max(1, Number(existing.stock) || 1)));
         setExistingImageUrls((existing.images ?? []).filter(Boolean));
@@ -599,6 +601,9 @@ export default function CreateAdminCarpetPage() {
           finalDescription += '.';
         }
       }
+      if (showInHero) {
+        finalDescription = `${finalDescription} [HERO]`.trim();
+      }
 
       const payload = {
         name: finalName,
@@ -951,6 +956,20 @@ export default function CreateAdminCarpetPage() {
           onChange={(e) => setDescription(e.target.value)}
           rows={4}
         />
+
+        {/* Hero Slider Management checkbox */}
+        <div className="md:col-span-2 flex items-center gap-3 py-3 bg-primary/5 rounded-2xl px-4 border border-primary/10 transition hover:bg-primary/10">
+          <input
+            id="showInHero"
+            type="checkbox"
+            className="h-5 w-5 rounded border-ink/20 text-primary focus:ring-primary cursor-pointer transition"
+            checked={showInHero}
+            onChange={(e) => setShowInHero(e.target.checked)}
+          />
+          <label htmlFor="showInHero" className="text-sm font-bold text-ink/80 select-none cursor-pointer flex-1">
+            Kirish animatsiyasida ko&apos;rsatish (Ushbu gilam saytga kirilganda ko&apos;rinadigan animatsiyada chiqsin)
+          </label>
+        </div>
         {!(isPrayerMat || isOvalCarpet) && (
           <select
             className="input-field md:col-span-2"

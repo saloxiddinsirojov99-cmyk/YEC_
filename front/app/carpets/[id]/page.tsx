@@ -2,10 +2,12 @@
 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { formatPrice, getErrorMessage } from '@/services/api';
 import { getToken } from '@/services/auth.service';
 import CarpetList from '@/components/CarpetList';
+import CarpetCard from '@/components/CarpetCard';
 import { getCarpetById, getCarpets } from '@/services/carpet.service';
 import { addToCart } from '@/services/cart.service';
 import { isCarpetLiked, likeCarpet } from '@/services/like.service';
@@ -20,6 +22,11 @@ export default function CarpetDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const id = params?.id;
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const [carpet, setCarpet] = useState<Carpet | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,7 +43,19 @@ export default function CarpetDetailPage() {
   const [isLiked, setIsLiked] = useState(false);
   const [similarCarpets, setSimilarCarpets] = useState<Carpet[]>([]);
   const [discoverCarpets, setDiscoverCarpets] = useState<Carpet[]>([]);
+  const [otherProducts, setOtherProducts] = useState<Carpet[]>([]);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
+
+  const discoverScrollRef = useRef<HTMLDivElement>(null);
+  const scrollDiscover = (direction: 'left' | 'right') => {
+    if (discoverScrollRef.current) {
+      const scrollAmount = 320;
+      discoverScrollRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth',
+      });
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -123,37 +142,55 @@ export default function CarpetDetailPage() {
     const loadSimilar = async () => {
       try {
         setLoadingSimilar(true);
-        const response = await getCarpets({
-          page: 1,
-          limit: 40,
-          categoryId: carpet.categoryId,
-        });
+        const [response, randomResponse] = await Promise.all([
+          getCarpets({
+            page: 1,
+            limit: 80,
+            categoryId: carpet.categoryId,
+          }),
+          getCarpets({
+            page: 1,
+            limit: 80,
+            showAll: true,
+          })
+        ]);
+
         const currentName = carpet.name.toLowerCase().trim();
         const firstToken = currentName.split(/\s+/)[0] ?? '';
 
-        const items = response.items ?? [];
-        
-        // Similar: Carpets from the same collection (matching first token of name)
-        const similar = items
+        const categoryItems = response.items ?? [];
+        const allItems = randomResponse.items ?? [];
+
+        // 1. Similar: same collection in 2 rows
+        const similar = categoryItems
           .filter((item) => item.id !== carpet.id)
           .filter((item) => {
             if (!firstToken) return false;
             return item.name.toLowerCase().includes(firstToken);
           })
-          .slice(0, 16);
+          .slice(0, 8);
 
-        // Discover: Other carpets from the same category
-        const similarIds = new Set(similar.map(s => s.id));
-        const discover = items
+        // 2. Discover: other items in the same category in scrollable carousel
+        const similarIds = new Set(similar.map((s) => s.id));
+        const discover = categoryItems
           .filter((item) => item.id !== carpet.id && !similarIds.has(item.id))
+          .sort(() => Math.random() - 0.5)
+          .slice(0, 12);
+
+        // 3. Other Products: completely random mix of carpets, ovals, joynamozlar
+        const activeIds = new Set([carpet.id, ...similar.map((s) => s.id), ...discover.map((d) => d.id)]);
+        const others = allItems
+          .filter((item) => !activeIds.has(item.id))
           .sort(() => Math.random() - 0.5)
           .slice(0, 12);
 
         setSimilarCarpets(similar);
         setDiscoverCarpets(discover);
+        setOtherProducts(others);
       } catch {
         setSimilarCarpets([]);
         setDiscoverCarpets([]);
+        setOtherProducts([]);
       } finally {
         setLoadingSimilar(false);
       }
@@ -214,10 +251,8 @@ export default function CarpetDetailPage() {
       <div className="grid gap-8 md:grid-cols-2">
         <div className="space-y-4">
           <div
-            className="group relative w-full overflow-hidden rounded-2xl border border-black/10 bg-white shadow-soft"
-            onClick={() => {
-              if (isTouch) setShowZoomCta(true);
-            }}
+            className="group relative w-full overflow-hidden rounded-2xl border border-black/10 bg-white shadow-soft cursor-zoom-in"
+            onClick={openZoom}
             onMouseEnter={() => {
               if (!isTouch) setIsHovering(true);
             }}
@@ -230,18 +265,6 @@ export default function CarpetDetailPage() {
               alt={carpet.name}
               className="w-full h-auto max-h-[80vh] object-contain bg-white transition-opacity duration-500"
             />
-            <button
-              type="button"
-              className={`absolute bottom-3 right-3 rounded-full bg-black/75 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white shadow transition-opacity duration-300 ${
-                zoomCtaVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-              }`}
-              onClick={(event) => {
-                event.stopPropagation();
-                openZoom();
-              }}
-            >
-              Yaqinlashtirish
-            </button>
           </div>
 
           {images.length > 1 && (
@@ -341,7 +364,7 @@ export default function CarpetDetailPage() {
           </div>
 
           <p className="mt-5 text-sm leading-7 text-ink/75">
-            {carpet.description || "Ushbu gilam uchun tavsif hali qo'shilmagan."}
+            {(carpet.description ?? '').replace('[HERO]', '').trim() || "Ushbu gilam uchun tavsif hali qo'shilmagan."}
           </p>
 
           <div className="mt-7 flex flex-wrap gap-3">
@@ -373,7 +396,7 @@ export default function CarpetDetailPage() {
                 setMessage("Gilam savatga qo'shildi.");
               }}
             >
-              {carpet.stock <= 0 ? "Sotib bo'lingan" : "Savatga qo'shish"}
+              {carpet.stock <= 0 ? "Sotuvda qolmagan" : "Savatga qo'shish"}
             </button>
             <Link
               href="/cart"
@@ -400,102 +423,185 @@ export default function CarpetDetailPage() {
         </div>
       </div>
 
-      <section className="mt-14">
+      {/* 1. Similar Carpets (Shu kolleksiyadagilar - exactly 2 rows) */}
+      <section className="mt-16 border-t border-black/5 pt-12">
         <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.3em] text-primary/60">
+            <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-primary/80">
               Kolleksiya
             </p>
-            <h2 className="font-serif text-3xl text-ink">O&apos;xshash gilamlar</h2>
+            <h2 className="font-serif text-3xl text-ink">Shu nomdagi o&apos;xshash gilamlar</h2>
           </div>
-          <Link href={`/turlar/${carpet.categoryId}`} className="btn-secondary px-6 py-2.5 text-sm font-bold border-primary/20 text-primary hover:bg-primary hover:text-white transition-all">
+          <Link
+            href={`/turlar/${carpet.categoryId}`}
+            className="rounded-xl border border-primary/20 bg-white px-5 py-2.5 text-xs font-bold text-primary hover:bg-primary hover:text-white transition-all shadow-sm"
+          >
             Barchasini ko&apos;rish
           </Link>
         </div>
-        
+
         <div className="relative">
-          <CarpetList
-            carpets={similarCarpets}
-            loading={loadingSimilar}
-            emptyText="Hozircha o'xshash gilam topilmadi."
-          />
+          {loadingSimilar ? (
+            <div className="grid grid-cols-2 gap-4 sm:gap-5 md:grid-cols-4 lg:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div key={index} className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm animate-pulse">
+                  <div className="h-40 bg-primary/5" />
+                  <div className="p-3 space-y-2">
+                    <div className="h-4 bg-primary/5 rounded w-2/3" />
+                    <div className="h-3 bg-primary/5 rounded w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : similarCarpets.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-sand/40 bg-slate-50/50 p-8 text-center text-xs text-ink/50">
+              Hozircha o&apos;xshash gilamlar topilmadi.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 sm:gap-5 md:grid-cols-4 lg:grid-cols-4">
+              {similarCarpets.map((c) => (
+                <CarpetCard key={c.id} carpet={c} />
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
+      {/* 2. Horizontally scrollable smooth slider (Tavsiya etiladigan slider - right-to-left layout scrollable) */}
       {discoverCarpets.length > 0 && (
-        <section className="mt-20">
-          <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-t border-black/5 pt-12">
+        <section className="mt-20 border-t border-black/5 pt-12">
+          <div className="mb-8 flex items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.3em] text-amber-600">
-                Kashf qiling
+              <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber-600">
+                Sizga yoqishi mumkin
               </p>
-              <h2 className="font-serif text-3xl text-ink">Yana boshqa gilamlar</h2>
+              <h2 className="font-serif text-3xl text-ink">Tavsiya etiladigan gilamlar</h2>
+            </div>
+            
+            {/* Scroll Navigation Arrows */}
+            <div className="flex gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => scrollDiscover('left')}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-sand bg-white text-ink/75 hover:bg-slate-50 hover:text-ink active:scale-90 transition shadow-sm"
+                aria-label="Scroll left"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollDiscover('right')}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-sand bg-white text-ink/75 hover:bg-slate-50 hover:text-ink active:scale-90 transition shadow-sm"
+                aria-label="Scroll right"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
             </div>
           </div>
+
+          {/* Smooth Horizontal Carousel Strip */}
+          <div className="relative group">
+            <div
+              ref={discoverScrollRef}
+              className="flex gap-5 overflow-x-auto pb-6 pt-2 scrollbar-none scroll-smooth mask-image-horizontal pr-4"
+              style={{ WebkitOverflowScrolling: 'touch' }}
+            >
+              {discoverCarpets.map((c) => (
+                <div
+                  key={c.id}
+                  className="w-[240px] sm:w-[280px] shrink-0 transition-transform duration-300 hover:-translate-y-1 hover:shadow-soft"
+                >
+                  <CarpetCard carpet={c} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* 3. Other Products (Boshqa gilamlar - completely random mix of carpets, ovals, joynamozlar) */}
+      {otherProducts.length > 0 && (
+        <section className="mt-20 border-t border-black/5 pt-12">
+          <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-emerald-600">
+                Kashf eting
+              </p>
+              <h2 className="font-serif text-3xl text-ink">Boshqa gilamlar va mahsulotlar</h2>
+            </div>
+          </div>
+          
           <CarpetList
-            carpets={discoverCarpets}
+            carpets={otherProducts}
             loading={loadingSimilar}
           />
         </section>
       )}
 
-      {isZoomOpen ? (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 transition-all duration-300"
-          onClick={() => {
-            setIsZoomOpen(false);
-            setZoomLevel(1);
-          }}
-        >
+      {isZoomOpen && mounted ? (
+        createPortal(
           <div
-            className="relative flex h-full w-full flex-col items-center justify-center p-2 sm:p-8"
-            onClick={(event) => event.stopPropagation()}
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/95 transition-all duration-300 animate-in fade-in"
+            onClick={() => {
+              setIsZoomOpen(false);
+              setZoomLevel(1);
+            }}
           >
-            <button
-              type="button"
-              className="absolute right-4 top-4 z-10 rounded-full bg-white/10 p-3 text-white backdrop-blur-xl transition-all hover:bg-white/20 active:scale-90"
-              onClick={() => {
-                setIsZoomOpen(false);
-                setZoomLevel(1);
-              }}
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 6L6 18M6 6l12 12"/>
-              </svg>
-            </button>
-
             <div
-              className="relative flex h-full w-full items-center justify-center overflow-hidden"
-              onMouseMove={(event) => {
-                if (zoomLevel === 1 || isTouch) return;
-                const rect = event.currentTarget.getBoundingClientRect();
-                const x = ((event.clientX - rect.left) / rect.width) * 100;
-                const y = ((event.clientY - rect.top) / rect.height) * 100;
-                setZoomOrigin(`${x}% ${y}%`);
-              }}
-              onMouseLeave={() => setZoomOrigin('50% 50%')}
+              className="relative flex h-full w-full flex-col items-center justify-center p-2 sm:p-8"
+              onClick={(event) => event.stopPropagation()}
             >
-              <img
-                src={zoomImage}
-                alt={`${carpet.name} zoom`}
-                className={`max-h-full max-w-full bg-white object-contain transition-transform duration-300 ${
-                  zoomLevel > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'
-                }`}
-                style={{
-                  transform: `scale(${zoomLevel})`,
-                  transformOrigin: zoomOrigin,
+              <button
+                type="button"
+                className="absolute right-4 top-4 z-10 rounded-full bg-white/10 p-3 text-white backdrop-blur-xl transition-all hover:bg-white/20 active:scale-90"
+                onClick={() => {
+                  setIsZoomOpen(false);
+                  setZoomLevel(1);
                 }}
-                onClick={() => setZoomLevel((prev) => (prev === 1 ? 2.5 : 1))}
-              />
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+              </button>
+
+              <div
+                className="relative flex h-[85vh] w-full items-center justify-center overflow-hidden"
+                onMouseMove={(event) => {
+                  if (zoomLevel === 1 || isTouch) return;
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const x = ((event.clientX - rect.left) / rect.width) * 100;
+                  const y = ((event.clientY - rect.top) / rect.height) * 100;
+                  setZoomOrigin(`${x}% ${y}%`);
+                }}
+                onMouseLeave={() => setZoomOrigin('50% 50%')}
+              >
+                <img
+                  src={zoomImage}
+                  alt={`${carpet.name} zoom`}
+                  className={`max-h-full max-w-full bg-white object-contain transition-transform duration-300 rounded-lg shadow-2xl ${
+                    zoomLevel > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'
+                  }`}
+                  style={{
+                    transform: `scale(${zoomLevel})`,
+                    transformOrigin: zoomOrigin,
+                  }}
+                  onClick={() => setZoomLevel((prev) => (prev === 1 ? 2.5 : 1))}
+                />
+              </div>
+              
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+                 <p className="rounded-full bg-black/40 px-4 py-1.5 text-xs font-bold text-white backdrop-blur-md">
+                   {zoomLevel > 1 ? 'Kichraytirish uchun bosing' : 'Yaqinlashtirish uchun bosing'}
+                 </p>
+              </div>
             </div>
-            
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
-               <p className="rounded-full bg-black/40 px-4 py-1.5 text-xs font-bold text-white backdrop-blur-md">
-                 {zoomLevel > 1 ? 'Kichraytirish uchun bosing' : 'Yaqinlashtirish uchun bosing'}
-               </p>
-            </div>
-          </div>
-        </div>
+          </div>,
+          document.body
+        )
       ) : null}
     </div>
   );

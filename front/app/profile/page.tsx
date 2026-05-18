@@ -123,7 +123,7 @@ export default function ProfilePage() {
 
   const logout = () => {
     clearToken();
-    window.location.href = '/login';
+    router.push('/login');
   };
 
   if (!hasToken) {

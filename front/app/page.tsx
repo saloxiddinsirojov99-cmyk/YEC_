@@ -85,7 +85,7 @@ export default function HomePage() {
             getCarpets({ page: 1, limit: PRAYER_MAT_PREVIEW_LIMIT, kind: 'prayer' }),
             getCarpets({ page: 1, limit: OVAL_CARPET_PREVIEW_LIMIT, kind: 'oval' }),
             getCategories(),
-            getCarpets({ page: 1, limit: 100, kind: 'carpet' }), // Fetch more for hero variety
+            getCarpets({ page: 1, limit: 1000, showAll: true }), // Fetch more for hero variety
           ]);
 
         const latest = latestRes.status === 'fulfilled' ? (latestRes.value.items ?? []) : [];
@@ -207,10 +207,19 @@ export default function HomePage() {
   );
 
   const heroCarpets = useMemo(() => {
-    const groupedByCollection: Record<string, Carpet[]> = {};
-    
-    // Group all available carpets in the hero pool by their collection
     const poolToUse = heroPool.length > 0 ? heroPool : latestCarpets;
+    
+    // 1. Prioritize explicit admin-selected carpets marked with '[HERO]' in description
+    const explicitHeroCarpets = poolToUse.filter(
+      (c) => c.description && c.description.includes('[HERO]'),
+    );
+
+    if (explicitHeroCarpets.length > 0) {
+      return explicitHeroCarpets.slice(0, 12);
+    }
+
+    // 2. Dynamic collection auto-rotation fallback
+    const groupedByCollection: Record<string, Carpet[]> = {};
     
     poolToUse.forEach(c => {
       const collection = c.name.split(/\s+/)[0]?.toLowerCase() || 'other';
@@ -253,57 +262,11 @@ export default function HomePage() {
 
   return (
     <div className="space-y-7 pb-16" suppressHydrationWarning>
-      {/* 1. Hero Section */}
-      <section className="hero-premium group relative min-h-[380px] overflow-hidden md:min-h-[460px]">
-        <div className="aurora-motion" />
-        <div className="hero-glow float-orb -top-20 -left-20 opacity-40" />
-        <div className="hero-glow float-orb float-orb-delay -bottom-20 -right-20 opacity-30" style={{ animationDelay: '2s' }} />
-        
-        <div className="pointer-events-none absolute inset-x-0 top-[20%] z-[2] flex overflow-hidden opacity-30 select-none">
-          <div className="whitespace-nowrap text-[clamp(0.95rem,5vw,4.5rem)] font-black uppercase tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-white/10 via-white/35 to-white/10 motion-safe:animate-marquee">
-            <span className="text-[#D4AF37]">YEC</span> PREMIYUM GILAMLAR - HAR BIR XONADON UCHUN SHARQONA SIFAT <span className="mx-16 inline-block">*</span>
-            <span className="text-[#D4AF37]">YEC</span> PREMIYUM GILAMLAR - HAR BIR XONADON UCHUN SHARQONA SIFAT <span className="mx-16 inline-block">*</span>
-          </div>
-        </div>
-
-        <div className="relative z-10 grid w-full min-h-[380px] items-center gap-8 py-8 pl-4 md:min-h-[460px] md:gap-12 md:py-12 md:grid-cols-[0.6fr,1.4fr] lg:pl-8 xl:pl-12">
-          <div className="z-40">
-            <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-5 py-1.5 text-xs font-bold uppercase tracking-[0.3em] text-white/90 backdrop-blur-md">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-              <span className="text-[#D4AF37]">YEC</span> Market
-            </p>
-            <h1 className="font-serif text-5xl md:text-6xl lg:text-7xl leading-[1.1] drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)]">
-              <span className="text-[#D4AF37] block mb-2">YEC</span>
-              <span className="text-[#00B4FF] block">gilamlari sharqona sifat belgisi</span>
-            </h1>
-            <p className="mt-8 max-w-xl text-lg leading-relaxed text-white/80">
-              Toshkent bo'ylab sifatli va premium gilamlar markazi. Bizning zamonaviy gilamlarimiz bilan
-              tanishing va uyingizga nafislik olib kiring.
-            </p>
-            <div className="mt-10 flex flex-wrap gap-4">
-              <Link href="/carpets" className="btn-premium px-8 py-4 text-base">
-                Kolleksiyani ko'rish
-              </Link>
-              <Link href="/about" className="btn-secondary-premium border-none bg-white/20 px-8 py-4 text-base text-white backdrop-blur-lg hover:bg-white/30">
-                Biz haqimizda
-              </Link>
-            </div>
-          </div>
-          <div className="flex justify-center md:pl-16">
-            <div className="relative w-full max-w-2xl origin-center">
-              <div className="absolute -inset-2 rounded-[3rem] bg-gradient-to-tr from-accent/50 to-white/10 blur-3xl opacity-60" />
-              <div className="relative overflow-hidden rounded-[2rem] border border-white/25 shadow-[0_40px_100px_rgba(0,0,0,0.5)] sm:rounded-[2.5rem] animate-weave">
-                <img
-                  src="/images/hero-carpet-green.png"
-                  alt="Premium Iran Soft carpet weaving"
-                  className="h-[300px] w-full object-cover sm:h-[380px] md:h-[460px]"
-                />
-                {/* Visual overlay to symbolize weaving texture progress */}
-                <div className="absolute inset-0 bg-gradient-to-t from-white/10 to-transparent mix-blend-overlay opacity-30 pointer-events-none" />
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* 1. Dynamic Hero Section (NikeStyleSlider) */}
+      <section className="w-full">
+        <SectionReveal animation="fade-up" className="w-full">
+          <NikeStyleSlider carpets={heroCarpets} />
+        </SectionReveal>
       </section>
 
       {/* 2. Yangi gilamlar */}
@@ -345,9 +308,7 @@ export default function HomePage() {
         </SectionReveal>
       </section>
 
-      <SectionReveal animation="fade-up" className="w-full">
-        <NikeStyleSlider carpets={heroCarpets} />
-      </SectionReveal>
+
 
       {/* 4. Joynamozlar */}
       <section className="relative overflow-hidden py-16">

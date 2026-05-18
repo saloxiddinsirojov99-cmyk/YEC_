@@ -20,7 +20,7 @@ export default function NikeStyleSlider({ carpets }: NikeStyleSliderProps) {
     if (!carpets || carpets.length <= 1) return;
     const timer = setInterval(() => {
       setCurrentIndex((prev) => (prev + 1) % carpets.length);
-    }, 5000);
+    }, 3000);
     return () => clearInterval(timer);
   }, [carpets]);
 
@@ -136,7 +136,7 @@ export default function NikeStyleSlider({ carpets }: NikeStyleSliderProps) {
 
   return (
     <section 
-      className="relative w-full rounded-[2.5rem] md:rounded-[3rem] overflow-hidden my-4 md:my-6 min-h-[340px] md:min-h-[460px] shadow-[0_30px_60px_rgba(0,0,0,0.15)] transition-colors duration-[1500ms] ease-in-out group"
+      className="relative w-full overflow-hidden min-h-[380px] md:min-h-[480px] lg:min-h-[520px] transition-colors duration-[1500ms] ease-in-out group"
       style={{ backgroundColor: activeColor }}
     >
       {/* Light gradient for dynamic background depth (zero lag, pure css) */}
@@ -157,7 +157,7 @@ export default function NikeStyleSlider({ carpets }: NikeStyleSliderProps) {
         </div>
       </div>
 
-      <div className="relative z-10 w-full max-w-[1280px] mx-auto grid min-h-[300px] md:min-h-[400px] items-center gap-6 md:gap-8 px-6 lg:px-10 py-4 md:py-6 lg:grid-cols-2">
+      <div className="relative z-10 w-full max-w-[1280px] mx-auto grid min-h-[300px] md:min-h-[400px] items-center gap-6 md:gap-8 px-6 lg:px-10 pt-4 pb-16 md:py-6 lg:grid-cols-2">
         {/* Text Section */}
         <div className="z-40 row-start-2 lg:row-start-1 relative lg:-mt-8">
           <AnimatePresence mode="wait">
@@ -252,7 +252,7 @@ export default function NikeStyleSlider({ carpets }: NikeStyleSliderProps) {
 
       {/* Indicators */}
       {safeCarpets.length > 1 && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 flex gap-2 items-center p-2 rounded-full bg-black/20 backdrop-blur-md border border-white/10">
+        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-50 flex gap-2 items-center p-2 rounded-full bg-black/20 backdrop-blur-md border border-white/10">
           {safeCarpets.map((_, idx) => (
             <button
               key={idx}
