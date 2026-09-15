@@ -42,7 +42,8 @@ function isPrivateIpv4Host(hostname: string): boolean {
 
 function resolveGoogleCallbackUrl(config: ConfigService): string {
   const configuredCallback =
-    config.get<string>('GOOGLE_CALLBACK_URL') ?? process.env.GOOGLE_CALLBACK_URL;
+    config.get<string>('GOOGLE_CALLBACK_URL') ??
+    process.env.GOOGLE_CALLBACK_URL;
   if (!configuredCallback?.trim()) {
     strategyLogger.warn(
       `GOOGLE_CALLBACK_URL topilmadi. Default callback ishlatiladi: ${GOOGLE_CALLBACK_FALLBACK_URL}`,
@@ -83,10 +84,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         config.get<string>('GOOGLE_CLIENT_SECRET') ??
         (process.env.GOOGLE_CLIENT_SECRET as string),
       callbackURL,
-      scope: [
-        'email',
-        'profile',
-      ],
+      scope: ['email', 'profile'],
     });
 
     this.isPrivateCallbackHost = (() => {
@@ -99,7 +97,9 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     })();
   }
 
-  authorizationParams(options: Record<string, unknown>): Record<string, string> {
+  authorizationParams(
+    options: Record<string, unknown>,
+  ): Record<string, string> {
     const params = super.authorizationParams(options) as Record<string, string>;
 
     if (!this.isPrivateCallbackHost) {

@@ -18,20 +18,32 @@ export class PromoCodesService {
     this.ensureValidCode(code);
 
     const promoType = dto.promoType ?? PromoCodeType.DISCOUNT;
-    const startsAt = this.parseDateOrNull(dto.startsAt, "Promokod boshlanish sanasi noto'g'ri.");
-    const expiresAt = this.parseDateOrNull(dto.expiresAt, "Promokod tugash sanasi noto'g'ri.");
+    const startsAt = this.parseDateOrNull(
+      dto.startsAt,
+      "Promokod boshlanish sanasi noto'g'ri.",
+    );
+    const expiresAt = this.parseDateOrNull(
+      dto.expiresAt,
+      "Promokod tugash sanasi noto'g'ri.",
+    );
 
     if (startsAt && expiresAt && startsAt.getTime() > expiresAt.getTime()) {
-      throw new BadRequestException("Boshlanish sanasi tugash sanasidan keyin bo'la olmaydi.");
+      throw new BadRequestException(
+        "Boshlanish sanasi tugash sanasidan keyin bo'la olmaydi.",
+      );
     }
 
     if (expiresAt && expiresAt.getTime() <= Date.now()) {
-      throw new BadRequestException("Promokod tugash sanasi kelajakda bo'lishi kerak.");
+      throw new BadRequestException(
+        "Promokod tugash sanasi kelajakda bo'lishi kerak.",
+      );
     }
 
     const minOrderAmount = this.normalizeMinOrderAmount(dto.minOrderAmount);
 
-    const existing = await this.prisma.promoCode.findUnique({ where: { code } });
+    const existing = await this.prisma.promoCode.findUnique({
+      where: { code },
+    });
     if (existing) {
       throw new ConflictException('Bu promokod allaqachon mavjud.');
     }
@@ -39,14 +51,16 @@ export class PromoCodesService {
     if (promoType === PromoCodeType.DISCOUNT) {
       const percent = Number(dto.discountPercent);
       if (!Number.isFinite(percent)) {
-        throw new BadRequestException("Skidka foizini kiriting.");
+        throw new BadRequestException('Skidka foizini kiriting.');
       }
       if (percent < 1 || percent > 99) {
-        throw new BadRequestException("Skidka foizi 1 dan 99 gacha bo'lishi kerak.");
+        throw new BadRequestException(
+          "Skidka foizi 1 dan 99 gacha bo'lishi kerak.",
+        );
       }
     } else {
       if (!dto.giftImage?.trim()) {
-        throw new BadRequestException("Gilamcha rasmi majburiy.");
+        throw new BadRequestException('Gilamcha rasmi majburiy.');
       }
       const giftPrice = Number(dto.giftPrice);
       if (!Number.isFinite(giftPrice) || giftPrice < 0) {
@@ -67,9 +81,10 @@ export class PromoCodesService {
         expiresAt,
         giftName:
           promoType === PromoCodeType.GIFT
-            ? (dto.giftName?.trim() || 'Gilamcha')
+            ? dto.giftName?.trim() || 'Gilamcha'
             : null,
-        giftImage: promoType === PromoCodeType.GIFT ? dto.giftImage?.trim() : null,
+        giftImage:
+          promoType === PromoCodeType.GIFT ? dto.giftImage?.trim() : null,
         giftPrice:
           promoType === PromoCodeType.GIFT
             ? Math.round(Number(dto.giftPrice ?? 0))
@@ -131,7 +146,9 @@ export class PromoCodesService {
     }
 
     if (Object.keys(data).length === 0) {
-      throw new BadRequestException("Yangilash uchun kamida bitta maydon yuboring.");
+      throw new BadRequestException(
+        'Yangilash uchun kamida bitta maydon yuboring.',
+      );
     }
 
     const nextStartsAt =
@@ -139,8 +156,14 @@ export class PromoCodesService {
     const nextExpiresAt =
       data.expiresAt !== undefined ? data.expiresAt : existing.expiresAt;
 
-    if (nextStartsAt && nextExpiresAt && nextStartsAt.getTime() > nextExpiresAt.getTime()) {
-      throw new BadRequestException("Boshlanish sanasi tugash sanasidan keyin bo'la olmaydi.");
+    if (
+      nextStartsAt &&
+      nextExpiresAt &&
+      nextStartsAt.getTime() > nextExpiresAt.getTime()
+    ) {
+      throw new BadRequestException(
+        "Boshlanish sanasi tugash sanasidan keyin bo'la olmaydi.",
+      );
     }
 
     return this.prisma.promoCode.update({
@@ -171,7 +194,7 @@ export class PromoCodesService {
 
   private ensureValidCode(code: string) {
     if (!code) {
-      throw new BadRequestException("Promokod kiriting.");
+      throw new BadRequestException('Promokod kiriting.');
     }
     if (!/^[A-Z0-9_-]{3,30}$/.test(code)) {
       throw new BadRequestException(
@@ -180,7 +203,10 @@ export class PromoCodesService {
     }
   }
 
-  private parseDateOrNull(value: string | undefined, errorMessage: string): Date | null {
+  private parseDateOrNull(
+    value: string | undefined,
+    errorMessage: string,
+  ): Date | null {
     if (!value) return null;
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) {

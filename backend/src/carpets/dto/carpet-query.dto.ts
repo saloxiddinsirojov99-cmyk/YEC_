@@ -1,6 +1,13 @@
 import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 export class CarpetQueryDto {
   @ApiPropertyOptional({ example: 1 })
@@ -52,11 +59,23 @@ export class CarpetQueryDto {
 
   @ApiPropertyOptional({
     example: 'carpet',
-    description: 'Filter by type: carpet, prayer, or oval',
+    description:
+      'Filter by type: carpet, prayer, oval, roll, returned, returned_roll, returned_ready, normal_roll, normal_ready, normal',
   })
   @IsOptional()
   @IsString()
-  @IsIn(['carpet', 'prayer', 'oval'])
+  @IsIn([
+    'carpet',
+    'prayer',
+    'oval',
+    'roll',
+    'returned',
+    'returned_roll',
+    'returned_ready',
+    'normal_roll',
+    'normal_ready',
+    'normal',
+  ])
   kind?: string;
 
   @ApiPropertyOptional({
@@ -74,4 +93,28 @@ export class CarpetQueryDto {
   @IsOptional()
   @IsString()
   sortBy?: string;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Bypass grouping and return raw items',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  raw?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'antique',
+    description: 'Filter by exact collection name',
+  })
+  @IsOptional()
+  @IsString()
+  collection?: string;
+
+  @ApiPropertyOptional({
+    example: 'cmr7dmmyn000yacu5qiy4qzfz',
+    description: 'Carpet ID to exclude from recommendations',
+  })
+  @IsOptional()
+  @IsString()
+  excludeId?: string;
 }

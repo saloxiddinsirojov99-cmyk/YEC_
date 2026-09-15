@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { UserRole } from '@prisma/client';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import type { Request } from 'express';
 
 interface JwtPayload {
   sub: string;
@@ -19,7 +20,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // Extract JWT from Authorization Bearer header OR from cookies (access_token)
+      jwtFromRequest: (request: Request) => {
+        // 1. Try Authorization: Bearer <token> header first
+        const fromHeader = ExtractJwt.fromAuthHeaderAsBearerToken()(request);
+        if (fromHeader) return fromHeader;
+
+        // 2. Fallback: read from cookie named 'access_token'
+        if (request?.cookies) {
+          return request.cookies.access_token ?? request.cookies.token ?? null;
+        }
+
+        return null;
+      },
+      passReqToCallback: false,
       ignoreExpiration: false,
       secretOrKey: secret,
     });

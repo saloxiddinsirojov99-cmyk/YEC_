@@ -14,29 +14,88 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    return this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+  }
+
+  async findByPhone(phone: string): Promise<User | null> {
+    const clean9Digits = phone.replace(/\D/g, '').slice(-9);
+    if (!clean9Digits || clean9Digits.length < 9) {
+      return this.prisma.user.findFirst({ where: { phone } });
+    }
+
+    const candidateUsers = await this.prisma.user.findMany({
+      where: { phone: { contains: clean9Digits } },
+    });
+
+    if (candidateUsers.length > 0) {
+      candidateUsers.sort((a, b) => {
+        const aHasPass = a.password ? 1 : 0;
+        const bHasPass = b.password ? 1 : 0;
+        if (aHasPass !== bHasPass) return bHasPass - aHasPass;
+
+        const aIsAdmin =
+          a.role === UserRole.SUPERADMIN || a.role === UserRole.ADMIN ? 1 : 0;
+        const bIsAdmin =
+          b.role === UserRole.SUPERADMIN || b.role === UserRole.ADMIN ? 1 : 0;
+        if (aIsAdmin !== bIsAdmin) return bIsAdmin - aIsAdmin;
+
+        return b.createdAt.getTime() - a.createdAt.getTime();
+      });
+      return candidateUsers[0];
+    }
+
+    const allUsers = await this.prisma.user.findMany();
+
+    const matches = allUsers.filter(
+      (u) => u.phone && u.phone.replace(/\D/g, '').endsWith(clean9Digits),
+    );
+
+    if (matches.length > 0) {
+      matches.sort((a, b) => {
+        const aHasPass = a.password ? 1 : 0;
+        const bHasPass = b.password ? 1 : 0;
+        if (aHasPass !== bHasPass) return bHasPass - aHasPass;
+
+        const aIsAdmin =
+          a.role === UserRole.SUPERADMIN || a.role === UserRole.ADMIN ? 1 : 0;
+        const bIsAdmin =
+          b.role === UserRole.SUPERADMIN || b.role === UserRole.ADMIN ? 1 : 0;
+        if (aIsAdmin !== bIsAdmin) return bIsAdmin - aIsAdmin;
+
+        return b.createdAt.getTime() - a.createdAt.getTime();
+      });
+      return matches[0];
+    }
+
+    return null;
   }
 
   async findByCredential(credential: string): Promise<User | null> {
     const normalized = credential.trim();
-    // Try to find by email
-    const byEmail = await this.prisma.user.findUnique({ where: { email: normalized.toLowerCase() } });
+    if (!normalized) return null;
+
+    // 1. Try to find by email
+    const byEmail = await this.prisma.user.findFirst({
+      where: { email: { equals: normalized, mode: 'insensitive' } },
+    });
     if (byEmail) return byEmail;
 
-    // Try to find by phone
-    let phoneQuery = normalized;
-    if (/^\d+$/.test(phoneQuery)) {
-      phoneQuery = `+${phoneQuery}`;
+    // 2. Try to find by phone using robust findByPhone
+    const byPhone = await this.findByPhone(normalized);
+    if (byPhone) return byPhone;
+
+    // 3. Fallback direct match with digits
+    const digitsOnly = normalized.replace(/\D/g, '');
+    if (digitsOnly.length >= 7) {
+      const match = await this.prisma.user.findFirst({
+        where: { phone: { contains: digitsOnly } },
+      });
+      if (match) return match;
     }
-    
-    return this.prisma.user.findFirst({
-      where: {
-        phone: {
-          contains: phoneQuery,
-          mode: 'insensitive',
-        },
-      },
-    });
+
+    return null;
   }
 
   async findById(id: string): Promise<User> {
@@ -53,8 +112,27 @@ export class UsersService {
     phone: string,
     hashedPassword: string,
   ): Promise<User> {
-    const existing = await this.findByEmail(email);
-    if (existing) {
+    // If an offline user with this phone number already exists, update them to ONLINE instead of creating a new user
+    const existingByPhone = await this.findByPhone(phone);
+    if (existingByPhone) {
+      if (existingByPhone.registrationType === 'ONLINE') {
+        throw new ConflictException(
+          "Bu telefon raqami bilan foydalanuvchi allaqachon ro'yxatdan o'tgan.",
+        );
+      }
+      return this.prisma.user.update({
+        where: { id: existingByPhone.id },
+        data: {
+          name,
+          email: email.toLowerCase(),
+          password: hashedPassword,
+          registrationType: 'ONLINE',
+        },
+      });
+    }
+
+    const existingByEmail = await this.findByEmail(email);
+    if (existingByEmail) {
       throw new ConflictException(
         "Bu email bilan foydalanuvchi allaqachon ro'yxatdan o'tgan.",
       );
@@ -63,10 +141,11 @@ export class UsersService {
     return this.prisma.user.create({
       data: {
         name,
-        email,
+        email: email.toLowerCase(),
         phone,
         password: hashedPassword,
         role: UserRole.CUSTOMER,
+        registrationType: 'ONLINE',
       },
     });
   }
@@ -121,7 +200,6 @@ export class UsersService {
                     id: true,
                     name: true,
                     images: true,
-                    size: true,
                     material: true,
                     price: true,
                   },
@@ -137,8 +215,64 @@ export class UsersService {
       throw new NotFoundException('Profil topilmadi.');
     }
 
-    const tokenSecret = process.env.TELEGRAM_LINK_SECRET?.trim() || process.env.JWT_SECRET?.trim() || 'fallback-telegram-link-secret';
-    const telegramJoinToken = generateTelegramUserJoinToken(user.id, tokenSecret);
+    // Auto-link by phone number matching clean 9 digits if not yet linked
+    if (!user.telegramChatId && user.phone) {
+      const clean9 = user.phone.replace(/\D/g, '').slice(-9);
+      if (clean9.length === 9) {
+        const candidate = await this.prisma.user.findFirst({
+          where: {
+            id: { not: user.id },
+            telegramChatId: { not: null },
+            phone: { contains: clean9 },
+          },
+        });
+
+        let targetChatId = candidate?.telegramChatId;
+        let targetUsername = candidate?.telegramUsername;
+
+        if (!targetChatId) {
+          const allLinked = await this.prisma.user.findMany({
+            where: {
+              id: { not: user.id },
+              telegramChatId: { not: null },
+            },
+            select: {
+              telegramChatId: true,
+              telegramUsername: true,
+              phone: true,
+            },
+          });
+          const match = allLinked.find(
+            (u) => u.phone && u.phone.replace(/\D/g, '').endsWith(clean9),
+          );
+          if (match) {
+            targetChatId = match.telegramChatId;
+            targetUsername = match.telegramUsername;
+          }
+        }
+
+        if (targetChatId) {
+          const updated = await this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+              telegramChatId: targetChatId,
+              telegramUsername: targetUsername || null,
+            },
+            select: { telegramChatId: true },
+          });
+          user.telegramChatId = updated.telegramChatId;
+        }
+      }
+    }
+
+    const tokenSecret =
+      process.env.TELEGRAM_LINK_SECRET?.trim() ||
+      process.env.JWT_SECRET?.trim() ||
+      'fallback-telegram-link-secret';
+    const telegramJoinToken = generateTelegramUserJoinToken(
+      user.id,
+      tokenSecret,
+    );
 
     return {
       ...user,
@@ -150,11 +284,35 @@ export class UsersService {
   async updateProfile(userId: string, dto: UpdateProfileDto) {
     await this.findById(userId);
 
+    let finalPhone = dto.phone;
+    if (dto.phone) {
+      const cleanDigits = dto.phone.replace(/\D/g, '');
+      finalPhone =
+        cleanDigits.length >= 9 ? `+998${cleanDigits.slice(-9)}` : dto.phone;
+
+      const existingUser = await this.prisma.user.findFirst({
+        where: {
+          id: { not: userId },
+          OR: [
+            { phone: dto.phone },
+            { phone: finalPhone },
+            { phone: cleanDigits },
+          ],
+        },
+      });
+
+      if (existingUser) {
+        throw new ConflictException(
+          'Ushbu telefon raqami bazada allaqachon mavjud. Iltimos, boshqa telefon raqami kiriting.',
+        );
+      }
+    }
+
     return this.prisma.user.update({
       where: { id: userId },
       data: {
         name: dto.name,
-        phone: dto.phone,
+        phone: finalPhone,
         avatar: dto.avatar,
         address: dto.address,
         lat: dto.lat,
@@ -280,7 +438,12 @@ export class UsersService {
       usersCount,
       carpetsCount,
       orders: {
-        total: pendingCount + acceptedCount + deliveredCount + cancelledCount + onWayCount,
+        total:
+          pendingCount +
+          acceptedCount +
+          deliveredCount +
+          cancelledCount +
+          onWayCount,
         pending: pendingCount,
         accepted: acceptedCount,
         delivered: deliveredCount,

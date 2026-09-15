@@ -24,11 +24,18 @@ export class PushNotificationService implements OnModuleInit {
       webpush.setVapidDetails(email, publicKey, privateKey);
       this.logger.log('VAPID details set for Web Push');
     } else {
-      this.logger.warn('VAPID keys not found. Web Push notifications will not work.');
+      this.logger.warn(
+        'VAPID keys not found. Web Push notifications will not work.',
+      );
     }
   }
 
-  async sendNotification(userId: string, title: string, body: string, url?: string) {
+  async sendNotification(
+    userId: string,
+    title: string,
+    body: string,
+    url?: string,
+  ) {
     const subscriptions = await this.prisma.pushSubscription.findMany({
       where: { userId },
     });
@@ -59,7 +66,9 @@ export class PushNotificationService implements OnModuleInit {
       try {
         await webpush.sendNotification(pushConfig, payload);
       } catch (error) {
-        this.logger.error(`Error sending push to ${sub.endpoint}: ${error.message}`);
+        this.logger.error(
+          `Error sending push to ${sub.endpoint}: ${error.message}`,
+        );
         if (error.statusCode === 410 || error.statusCode === 404) {
           await this.prisma.pushSubscription.delete({ where: { id: sub.id } });
         }
@@ -75,7 +84,9 @@ export class PushNotificationService implements OnModuleInit {
       select: { id: true, email: true },
     });
 
-    this.logger.log(`Notifying ${admins.length} admins via push: ${admins.map(a => a.email).join(', ')}`);
+    this.logger.log(
+      `Notifying ${admins.length} admins via push: ${admins.map((a) => a.email).join(', ')}`,
+    );
 
     await Promise.all(
       admins.map((admin) => this.sendNotification(admin.id, title, body, url)),

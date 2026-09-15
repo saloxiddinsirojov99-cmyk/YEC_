@@ -15,7 +15,10 @@ export class GoogleAuthGuard extends AuthGuard('google') {
     // Google private-IP redirect'larda `device_id` va `device_name` so'rashi mumkin.
     // PII chiqarmaslik uchun ip+UA'dan hash qilib yuboramiz.
     const seed = `${ip}|${userAgent || 'unknown'}`;
-    const deviceId = createHash('sha256').update(seed).digest('hex').slice(0, 32);
+    const deviceId = createHash('sha256')
+      .update(seed)
+      .digest('hex')
+      .slice(0, 32);
     const deviceName = (userAgent || 'YEC Market Browser').slice(0, 120);
 
     return {
@@ -25,4 +28,3 @@ export class GoogleAuthGuard extends AuthGuard('google') {
     };
   }
 }
-

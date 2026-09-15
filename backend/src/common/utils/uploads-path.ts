@@ -24,7 +24,16 @@ export const getUploadPathCandidates = (): string[] => {
 };
 
 export const resolveUploadsDir = (): string => {
-  const candidates = getUploadPathCandidates();
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0] ?? join(process.cwd(), 'uploads');
-};
+  // On Vercel serverless functions, the root filesystem is read-only.
+  // /tmp is the only writable directory (ephemeral fallback).
+  if (process.env.VERCEL && !process.env.UPLOADS_DIR) {
+    return join('/tmp', 'uploads');
+  }
 
+  const candidates = getUploadPathCandidates();
+  return (
+    candidates.find((candidate) => existsSync(candidate)) ??
+    candidates[0] ??
+    join(process.cwd(), 'uploads')
+  );
+};

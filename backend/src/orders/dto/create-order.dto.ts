@@ -25,9 +25,10 @@ export class CreateOrderDto {
   @IsPhoneNumber(undefined)
   phone!: string;
 
-  @ApiProperty({ example: '+998911112233' })
+  @ApiPropertyOptional({ example: '+998911112233' })
+  @IsOptional()
   @IsPhoneNumber(undefined)
-  phone2!: string;
+  phone2?: string;
 
   @ApiProperty({ example: 'Toshkent shahri, Chilonzor tumani' })
   @IsString()
@@ -86,4 +87,19 @@ export class CreateOrderDto {
   @ValidateNested({ each: true })
   @Type(() => CreateOrderItemDto)
   items!: CreateOrderItemDto[];
+
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Metraj gilam shartlarini tasdiqlash statusi',
+  })
+  @IsOptional()
+  termsAccepted?: boolean;
+
+  @ApiPropertyOptional({
+    example: '2026-06-29',
+    description: 'Yetkazib berish sanasi',
+  })
+  @IsOptional()
+  @IsString()
+  deliveryDateString?: string;
 }

@@ -4,4 +4,5 @@ export enum UserRole {
   COURIER = 'COURIER',
   SELLER = 'SELLER',
   CUSTOMER = 'CUSTOMER',
+  OPERATOR = 'OPERATOR',
 }

@@ -1,7 +1,14 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
+
+import { Pool } from 'pg';
 
 @Injectable()
 export class PrismaService
@@ -17,7 +24,16 @@ export class PrismaService
       throw new Error('DATABASE_URL topilmadi. .env faylni tekshiring.');
     }
 
-    const adapter = new PrismaPg({ connectionString });
+    const isServerless = !!process.env.VERCEL;
+    const maxConnections = isServerless ? 5 : 25;
+
+    const pool = new Pool({
+      connectionString,
+      max: maxConnections,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
+    const adapter = new PrismaPg(pool);
     super({ adapter });
   }
 
@@ -28,23 +44,31 @@ export class PrismaService
 
     this.isConnecting = true;
     let attempt = 0;
+    const isServerless = !!process.env.VERCEL;
+    const maxAttempts = isServerless ? 3 : Infinity;
 
-    while (true) {
+    while (attempt < maxAttempts) {
       try {
         await this.$connect();
         this.logger.log('Database ulanishi muvaffaqiyatli.');
         break;
       } catch (error) {
         attempt += 1;
-        const delay = Math.min(15000, 1000 * attempt);
+        const delay = Math.min(isServerless ? 2000 : 15000, 1000 * attempt);
         const trace =
-          error instanceof Error ? error.stack ?? error.message : String(error);
+          error instanceof Error
+            ? (error.stack ?? error.message)
+            : String(error);
         this.logger.error(
           `Database ulanishida xatolik (urinish ${attempt}). ${Math.ceil(
             delay / 1000,
           )}s dan keyin qayta urinamiz.`,
           trace,
         );
+        if (attempt >= maxAttempts) {
+          this.logger.error('Database ulanish urinishlari chegarasiga yetdi.');
+          break;
+        }
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
@@ -61,7 +85,7 @@ export class PrismaService
       await this.$disconnect();
     } catch (error) {
       const trace =
-        error instanceof Error ? error.stack ?? error.message : String(error);
+        error instanceof Error ? (error.stack ?? error.message) : String(error);
       this.logger.error('Database uzishda xatolik yuz berdi.', trace);
     }
   }

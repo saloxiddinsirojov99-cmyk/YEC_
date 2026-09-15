@@ -203,7 +203,8 @@ export class MailService {
     const user = this.configService.get<string>('SMTP_USER');
     const passRaw = this.configService.get<string>('SMTP_PASS');
     const pass = passRaw ? passRaw.replace(/\s+/g, '') : undefined;
-    const from = this.configService.get<string>('SMTP_FROM') ?? 'no-reply@yecmarket.uz';
+    const from =
+      this.configService.get<string>('SMTP_FROM') ?? 'no-reply@yecmarket.uz';
 
     if (!host || !user || !pass) return;
 

@@ -15,11 +15,11 @@ export class UpdateProfileDto {
   @MaxLength(100, { message: 'Ism 100 ta belgidan oshmasligi kerak.' })
   name?: string;
 
-  @ApiPropertyOptional({ example: '+998901234567' })
+  @ApiPropertyOptional({ example: '+998 90-123-45-67' })
   @IsOptional()
   @IsString({ message: "Telefon raqam matn bo'lishi kerak." })
-  @Matches(/^\+998\d{9}$/, {
-    message: "Telefon raqam +998901234567 formatida bo'lishi kerak.",
+  @Matches(/^(\+?998)?[\s-]?\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}$/, {
+    message: "Telefon raqami noto'g'ri kiritildi (masalan: +998 90 123 45 67).",
   })
   phone?: string;
 

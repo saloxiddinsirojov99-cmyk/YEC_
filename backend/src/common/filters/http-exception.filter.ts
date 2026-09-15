@@ -18,8 +18,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let message = 'Serverda kutilmagan xatolik yuz berdi.';
     let errors: string[] | undefined;
 
+    let customExtraProps: Record<string, any> = {};
+
     if (exception instanceof Prisma.PrismaClientKnownRequestError) {
-      const mapped = this.mapPrismaKnownError(exception.code);
+      const mapped = this.mapPrismaKnownError(exception.code, exception.meta);
       status = mapped.status;
       message = mapped.message;
     } else if (exception instanceof Prisma.PrismaClientValidationError) {
@@ -38,10 +40,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       if (typeof res === 'string') {
         message = this.translateMessage(res);
       } else if (typeof res === 'object' && res !== null) {
-        const responseObj = res as {
-          message?: string | string[];
-          errors?: string[];
-        };
+        const responseObj = res as Record<string, any>;
 
         if (Array.isArray(responseObj.message)) {
           errors = responseObj.message.map((m) => this.translateMessage(m));
@@ -53,6 +52,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
         if (Array.isArray(responseObj.errors)) {
           errors = responseObj.errors.map((m) => this.translateMessage(m));
         }
+
+        const {
+          message: _m,
+          statusCode: _s,
+          error: _e,
+          errors: _errs,
+          ...extra
+        } = responseObj;
+        customExtraProps = extra;
       }
     } else if (exception instanceof Error) {
       message = this.translateMessage(exception.message);
@@ -70,40 +78,77 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
 
     const ctx = host.switchToHttp();
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const response = ctx.getResponse();
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const request = ctx.getRequest();
 
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
     response.status(status).json({
+      success: false,
       statusCode: status,
       message,
-      errors,
+      errors: errors || [],
       timestamp: new Date().toISOString(),
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       path: request.url,
+      ...customExtraProps,
     });
   }
 
-  private mapPrismaKnownError(code: string): {
+  private mapPrismaKnownError(
+    code: string,
+    meta?: Record<string, any>,
+  ): {
     status: number;
     message: string;
   } {
     if (code === 'P2002') {
+      const targetStr = String(meta?.target || '').toLowerCase();
+      if (targetStr.includes('phone')) {
+        return {
+          status: HttpStatus.CONFLICT,
+          message:
+            'Ushbu telefon raqami bazada allaqachon mavjud. Iltimos, boshqa telefon raqami kiriting.',
+        };
+      }
+      if (targetStr.includes('email')) {
+        return {
+          status: HttpStatus.CONFLICT,
+          message:
+            'Ushbu email manzili bazada allaqachon mavjud. Iltimos, boshqa email kiriting.',
+        };
+      }
+      if (
+        targetStr.includes('barcode') ||
+        targetStr.includes('sku') ||
+        targetStr.includes('code')
+      ) {
+        return {
+          status: HttpStatus.CONFLICT,
+          message:
+            'Bunday shtrix-kod yoki noyob kod bazada allaqachon mavjud. Iltimos, boshqa kod kiriting.',
+        };
+      }
       return {
         status: HttpStatus.CONFLICT,
-        message: "Bu ma'lumot allaqachon mavjud.",
+        message:
+          "Bunday ma'lumot bazada allaqachon mavjud. Iltimos, boshqa qiymat kiriting.",
       };
     }
 
     if (code === 'P2025') {
       return {
         status: HttpStatus.NOT_FOUND,
-        message: "So'ralgan ma'lumot topilmadi.",
+        message: "Tahrirlanmoqchi bo'lgan ma'lumot tizimda topilmadi.",
       };
     }
 
     if (code === 'P2003') {
       return {
         status: HttpStatus.BAD_REQUEST,
-        message: "Bog'liq ma'lumot topilmadi yoki noto'g'ri yuborildi.",
+        message:
+          "Tizimda mos keluvchi bog'liq ma'lumot topilmadi (masalan, noto'g'ri kategoriya ID).",
       };
     }
 
@@ -132,7 +177,24 @@ export class HttpExceptionFilter implements ExceptionFilter {
     return 'Fayl yuklashda xatolik yuz berdi.';
   }
 
-  private translateMessage(message: string): string {
+  private translateMessage(message: any): string {
+    if (!message) return "So'rovda xatolik yuz berdi.";
+    if (typeof message !== 'string') {
+      if (typeof message === 'object') {
+        if (typeof message.message === 'string') {
+          return this.translateMessage(message.message);
+        }
+        if (message.constraints && typeof message.constraints === 'object') {
+          const firstConstraint = Object.values(message.constraints)[0];
+          if (typeof firstConstraint === 'string') {
+            return this.translateMessage(firstConstraint);
+          }
+        }
+        return "So'rovda xatolik yuz berdi.";
+      }
+      message = String(message);
+    }
+
     const normalized = message.toLowerCase();
 
     if (normalized.includes('unauthorized'))

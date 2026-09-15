@@ -1,15 +1,17 @@
 import { Update, Start, On, Command, Ctx } from 'nestjs-telegraf';
 import { Context } from 'telegraf';
 import { PrismaService } from '../prisma/prisma.service';
-import { Logger } from '@nestjs/common';
+import { Logger, BadRequestException } from '@nestjs/common';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
-import { UserRole } from '@prisma/client';
+import { UserRole, CarpetInventoryStatus, Prisma } from '@prisma/client';
 import { TelegramService } from './telegram.service';
 import { formatOrderNumber } from '../common/utils/order-number';
 import { verifyTelegramUserJoinToken } from '../common/utils/telegram-link-token';
+import { SimilarityService } from '../ai/services/similarity.service';
+import { SearchService } from '../carpets/search.service';
 
 type CollectionCodeEntry = {
   slug: string;
@@ -27,30 +29,31 @@ type SellerInviteEntry = {
 export class TelegramUpdate {
   private readonly logger = new Logger(TelegramUpdate.name);
   private readonly DEFAULT_ADMIN = 'Saloxiddin_977';
-  private readonly MENU_MAIN_SEARCH = 'Gilam qidirish';
-  private readonly MENU_MAIN_NEW_ORDERS = 'Buyurtmalar';
-  private readonly MENU_MAIN_ADD_ADMIN = 'Adminlar';
-  private readonly MENU_MAIN_ADD_SELLER = 'Sotuvchilar';
-  private readonly MENU_MAIN_COURIERS = 'Kuryerlar';
-  private readonly MENU_SELLERS_ALL = 'Barcha sotuvchilar';
-  private readonly MENU_SELLERS_ADD = "Sotuvchi qo'shish";
-  private readonly MENU_SELLERS_BACK = '<-- Orqaga';
-  private readonly MENU_COURIERS_ALL = 'Barcha kuryerlar';
-  private readonly MENU_COURIERS_ADD = "Kuryer qo'shish";
-  private readonly MENU_COURIERS_BACK = '<-- Orqaga';
-  private readonly MENU_COURIER_ORDERS = 'Mening buyurtmalarim';
-  private readonly MENU_SEARCH_IMAGE = 'Rasm bilan qidirish';
+  private readonly MENU_MAIN_SEARCH = '🔍 Gilam qidirish';
+  private readonly MENU_MAIN_NEW_ORDERS = '📦 Buyurtmalar';
+  private readonly MENU_MAIN_ADD_ADMIN = '👥 Adminlar';
+  private readonly MENU_MAIN_ADD_SELLER = '🤝 Sotuvchilar';
+  private readonly MENU_MAIN_COURIERS = '🚚 Kuryerlar';
+  private readonly MENU_SELLERS_ALL = '📋 Barcha sotuvchilar';
+  private readonly MENU_SELLERS_ADD = "➕ Sotuvchi qo'shish";
+  private readonly MENU_SELLERS_BACK = '🔙 Orqaga';
+  private readonly MENU_COURIERS_ALL = '📋 Barcha kuryerlar';
+  private readonly MENU_COURIERS_ADD = "➕ Kuryer qo'shish";
+  private readonly MENU_COURIERS_BACK = '🔙 Orqaga';
+  private readonly MENU_COURIER_ORDERS = '📦 Mening buyurtmalarim';
+  private readonly MENU_SEARCH_IMAGE = '🖼️ Rasm bilan qidirish';
 
-  private readonly MENU_SEARCH_NAME = 'Nom bilan';
-  private readonly MENU_SEARCH_CODE = 'Gul kodi bilan qidirish';
-  private readonly MENU_SEARCH_SIZE = "Razmer bo'yicha";
-  private readonly MENU_SEARCH_CATEGORY = "Turlar bo'yicha";
-  private readonly MENU_BACK = 'Orqaga';
-  private readonly MENU_CUSTOMER_ORDERS = 'Buyurtmalarim';
-  private readonly MENU_CUSTOMER_BRANCHES = 'Filiallar';
-  private readonly MENU_CUSTOMER_CONTACT_ADMIN = "Admin bilan bog'lanish";
-  private readonly MENU_CUSTOMER_SEND_CONTACT = 'Telefonni yuborish';
-  private readonly MENU_CUSTOMER_BACK = 'Menyuga qaytish';
+  private readonly MENU_SEARCH_NAME = "🏷️ Nom bo'yicha";
+  private readonly MENU_SEARCH_CODE = '🔢 Gul kodi bilan';
+  private readonly MENU_SEARCH_SIZE = "📏 O'lcham bo'yicha";
+  private readonly MENU_SEARCH_CATEGORY = "📂 Kategoriya bo'yicha";
+  private readonly MENU_BACK = '🔙 Orqaga';
+  private readonly MENU_CUSTOMER_ORDERS = '📦 Buyurtmalarim';
+  private readonly MENU_CUSTOMER_BRANCHES = '🏢 Filiallar';
+  private readonly MENU_CUSTOMER_CONTACT_ADMIN = "💬 Admin bilan bog'lanish";
+  private readonly MENU_CUSTOMER_SEND_CONTACT = '📞 Telefonni yuborish';
+  private readonly MENU_CUSTOMER_BACK = '🏠 Menyuga qaytish';
+
   private collectionCodeMap: Map<string, CollectionCodeEntry[]> | null = null;
   private collectionNameToSlug: Map<string, string> | null = null;
   private frontPublicDir: string | null = null;
@@ -76,8 +79,26 @@ export class TelegramUpdate {
   private readonly pendingCourierApprovals = new Set<string>();
   private readonly sellerInviteTokens = new Map<string, SellerInviteEntry>();
   private readonly courierInviteTokens = new Map<string, SellerInviteEntry>();
+  private readonly pendingReturnApprovals = new Map<string, string>();
   private readonly sellerInviteTokenTtlMs = 1000 * 60 * 60 * 24;
   private readonly activePhotoSearchChats = new Set<string>();
+  // Active user search queries and filter selections
+  private readonly userSearchState = new Map<
+    string,
+    {
+      query: string;
+      categoryId?: string;
+      shape?: string;
+      size?: string;
+      minPrice?: number;
+      maxPrice?: number;
+      material?: string;
+      onlyAvailable?: boolean;
+      onlyPromo?: boolean;
+      onlyNew?: boolean;
+      page: number;
+    }
+  >();
   private readonly imageSearchMaxCandidates = this.readPositiveIntEnv(
     'TELEGRAM_IMAGE_MATCH_LIMIT',
     60,
@@ -90,6 +111,8 @@ export class TelegramUpdate {
   constructor(
     private readonly prisma: PrismaService,
     private readonly telegramService: TelegramService,
+    private readonly similarityService: SimilarityService,
+    private readonly searchService: SearchService,
   ) {}
 
   private getTelegramLinkSecret(): string {
@@ -138,10 +161,7 @@ export class TelegramUpdate {
 
   private buildMainKeyboard(isSuperAdmin = false) {
     const rows = [
-      [
-        { text: this.MENU_MAIN_SEARCH },
-        { text: this.MENU_MAIN_NEW_ORDERS },
-      ],
+      [{ text: this.MENU_MAIN_SEARCH }, { text: this.MENU_MAIN_NEW_ORDERS }],
     ];
 
     const secondRow: any[] = [];
@@ -158,7 +178,7 @@ export class TelegramUpdate {
         keyboard: rows,
         resize_keyboard: true,
         one_time_keyboard: false,
-        input_field_placeholder: "Qidirish uchun nomini kiriting...",
+        input_field_placeholder: 'Qidirish uchun nomini kiriting...',
       },
     };
   }
@@ -166,14 +186,10 @@ export class TelegramUpdate {
   private buildSellerKeyboard() {
     return {
       reply_markup: {
-        keyboard: [
-          [
-            { text: this.MENU_MAIN_SEARCH },
-          ],
-        ],
+        keyboard: [[{ text: this.MENU_MAIN_SEARCH }]],
         resize_keyboard: true,
         one_time_keyboard: false,
-        input_field_placeholder: "Qidirish uchun nomini kiriting...",
+        input_field_placeholder: 'Qidirish uchun nomini kiriting...',
       },
     };
   }
@@ -187,7 +203,7 @@ export class TelegramUpdate {
         ],
         resize_keyboard: true,
         one_time_keyboard: false,
-        input_field_placeholder: "Kuryer menyusi",
+        input_field_placeholder: 'Kuryer menyusi',
       },
     };
   }
@@ -226,9 +242,10 @@ export class TelegramUpdate {
     return {
       reply_markup: {
         keyboard: [
-          [{ text: this.MENU_CUSTOMER_ORDERS }],
-          [{ text: this.MENU_CUSTOMER_BRANCHES }],
-          [{ text: this.MENU_CUSTOMER_CONTACT_ADMIN }],
+          [{ text: '🔍 Gilam qidirish' }, { text: '🖼 Rasm orqali qidirish' }],
+          [{ text: '📂 Kategoriyalar' }, { text: "📏 O'lcham bo'yicha" }],
+          [{ text: '💎 Premium' }, { text: '❤️ Sevimlilar' }],
+          [{ text: '📞 Operator' }, { text: '⚙ Sozlamalar' }],
         ],
         resize_keyboard: true,
         one_time_keyboard: false,
@@ -242,9 +259,7 @@ export class TelegramUpdate {
     const isSeller = await this.isSeller(ctx);
     const isSpecial = isAdmin || isSeller;
 
-    const keyboard: any[] = [
-      [{ text: this.MENU_BACK }],
-    ];
+    const keyboard: any[] = [[{ text: this.MENU_BACK }]];
 
     if (isSpecial) {
       keyboard.push([
@@ -258,9 +273,7 @@ export class TelegramUpdate {
       { text: this.MENU_SEARCH_CATEGORY },
     ]);
 
-    keyboard.push([
-      { text: this.MENU_SEARCH_NAME },
-    ]);
+    keyboard.push([{ text: this.MENU_SEARCH_NAME }]);
 
     return {
       reply_markup: {
@@ -268,7 +281,7 @@ export class TelegramUpdate {
         resize_keyboard: true,
         one_time_keyboard: false,
         is_persistent: true,
-        input_field_placeholder: "Qidiruv turini tanlang",
+        input_field_placeholder: 'Qidiruv turini tanlang',
       },
     };
   }
@@ -283,14 +296,14 @@ export class TelegramUpdate {
 
   private async showMainMenu(ctx: Context, message?: string) {
     await ctx.reply(
-      message ?? "Asosiy menyu. Pastdagi tugmalardan foydalaning.",
+      message ?? 'Asosiy menyu. Pastdagi tugmalardan foydalaning.',
       this.buildMainKeyboard(await this.isSuperAdmin(ctx)),
     );
   }
 
   private async showSellerMenu(ctx: Context, message?: string) {
     await ctx.reply(
-      message ?? "Sotuvchi menyusi. Qidiruvni ishlating:",
+      message ?? 'Sotuvchi menyusi. Qidiruvni ishlating:',
       this.buildSellerKeyboard(),
     );
   }
@@ -325,10 +338,35 @@ export class TelegramUpdate {
   }
 
   private async showSearchMenu(ctx: Context) {
+    await this.sendOptionalSticker(ctx, 'search');
     await ctx.reply(
-      "🔍 Qanday qidiruvni amalga oshirmoqchisiz? Pastdagi tugmalardan birini tanlang:",
+      '🔍 Qanday qidiruvni amalga oshirmoqchisiz? Pastdagi tugmalardan birini tanlang:',
       await this.buildSearchKeyboard(ctx),
     );
+  }
+
+  private async sendOptionalSticker(
+    ctx: Context,
+    type: 'welcome' | 'search' | 'success' | 'empty',
+  ) {
+    const stickers = {
+      welcome:
+        'CAACAgIAAxkBAAIBjGaZ_dUpzGvV8Ssd4X0T8sC3q7cAAgEAA1KJ4gsVGBM0X3fEBCQE',
+      search:
+        'CAACAgIAAxkBAAIBjGaZ_dUpzGvV8Ssd4X0T8sC3q7cAAgEAA1KJ4gsVGBM0X3fEBCQE',
+      success:
+        'CAACAgIAAxkBAAIBjGaZ_dUpzGvV8Ssd4X0T8sC3q7cAAgEAA1KJ4gsVGBM0X3fEBCQE',
+      empty:
+        'CAACAgIAAxkBAAIBjGaZ_dUpzGvV8Ssd4X0T8sC3q7cAAgEAA1KJ4gsVGBM0X3fEBCQE',
+    };
+    const stickerId = stickers[type];
+    if (stickerId) {
+      try {
+        await ctx.replyWithSticker(stickerId);
+      } catch (err) {
+        this.logger.log(`Sticker [${type}] send failed, skipping.`);
+      }
+    }
   }
 
   private buildBackFirstKeyboard(options: string[], placeholder: string) {
@@ -349,16 +387,15 @@ export class TelegramUpdate {
   }
 
   private async getAvailableSizes(): Promise<string[]> {
-    const carpets = await this.prisma.carpet.findMany({
-      where: { stock: { gt: 0 } },
+    const items = await this.prisma.inventoryItem.findMany({
+      where: { inventoryStatus: CarpetInventoryStatus.ACTIVE },
       select: { size: true },
-      orderBy: { size: 'asc' },
       take: 500,
     });
 
     const unique = new Set<string>();
-    for (const carpet of carpets) {
-      const size = (carpet.size || '').trim();
+    for (const item of items) {
+      const size = (item.size || '').trim();
       if (!size) continue;
       unique.add(size);
     }
@@ -372,7 +409,11 @@ export class TelegramUpdate {
     const categories = await this.prisma.category.findMany({
       where: {
         carpets: {
-          some: { stock: { gt: 0 } },
+          some: {
+            inventoryItems: {
+              some: { inventoryStatus: CarpetInventoryStatus.ACTIVE },
+            },
+          },
         },
       },
       select: { name: true },
@@ -383,6 +424,30 @@ export class TelegramUpdate {
     return categories
       .map((category) => (category.name || '').trim())
       .filter(Boolean);
+  }
+
+  private async getAvailableNames(): Promise<string[]> {
+    const carpets = await this.prisma.carpet.findMany({
+      where: {
+        inventoryItems: {
+          some: { inventoryStatus: CarpetInventoryStatus.ACTIVE },
+        },
+      },
+      select: { name: true },
+      orderBy: { name: 'asc' },
+      take: 500,
+    });
+
+    const unique = new Set<string>();
+    for (const carpet of carpets) {
+      const name = (carpet.name || '').trim();
+      if (!name) continue;
+      unique.add(name);
+    }
+
+    return Array.from(unique).sort((a, b) =>
+      a.localeCompare(b, 'uz', { sensitivity: 'base' }),
+    );
   }
 
   private async showAllSellers(ctx: Context) {
@@ -464,7 +529,10 @@ export class TelegramUpdate {
     const inviteLink = `https://t.me/${botUsername}?start=admin_join_${adminSecret}`;
     await ctx.reply(
       `👤 Yangi admin qo'shish uchun linkni bosing yoki ulashing:\n\n<a href="${inviteLink}">Admin bo'lish uchun botni ochish</a>\n\n‼️ Faqat ishonchli odamlarga yuboring!`,
-      { parse_mode: 'HTML', ...this.buildMainKeyboard(await this.isSuperAdmin(ctx)) },
+      {
+        parse_mode: 'HTML',
+        ...this.buildMainKeyboard(await this.isSuperAdmin(ctx)),
+      },
     );
   }
 
@@ -511,7 +579,10 @@ export class TelegramUpdate {
       take: 3,
     });
     if (orders.length === 0) {
-      await ctx.reply("📋 Hozircha hech qanday buyurtma yo'q.", this.buildMainKeyboard(await this.isSuperAdmin(ctx)));
+      await ctx.reply(
+        "📋 Hozircha hech qanday buyurtma yo'q.",
+        this.buildMainKeyboard(await this.isSuperAdmin(ctx)),
+      );
       return;
     }
 
@@ -519,30 +590,35 @@ export class TelegramUpdate {
       const itemsText = order.items
         .map((i) => `- ${i.carpet?.name ?? "Noma'lum gilam"} x${i.quantity}`)
         .join('\n');
-      
+
       let statusIcon = '⏳';
       if (order.status === 'ACCEPTED') statusIcon = '✅';
       if (order.status === 'ON_WAY') statusIcon = '🚚';
       if (order.status === 'DELIVERED') statusIcon = '🎉';
       if (order.status === 'CANCELLED') statusIcon = '❌';
 
-      return `📦 <b>Buyurtma #${formatOrderNumber(order.id, order.createdAt)}</b>\n` +
-             `👤 Mijoz: ${order.customerName}\n` +
-             `📞 Tel: ${(order as any).phone || 'Noma\'lum'}\n` +
-             `📍 Manzil: ${order.address}\n` +
-             `${statusIcon} Holati: ${order.status}\n\n` +
-             `📍 Mahsulotlar:\n${itemsText}`;
+      return (
+        `📦 <b>Buyurtma #${formatOrderNumber(order.id, order.createdAt)}</b>\n` +
+        `👤 Mijoz: ${order.customerName}\n` +
+        `📞 Tel: ${(order as any).phone || "Noma'lum"}\n` +
+        `📍 Manzil: ${order.address}\n` +
+        `${statusIcon} Holati: ${order.status}\n\n` +
+        `📍 Mahsulotlar:\n${itemsText}`
+      );
     });
 
     for (const msg of msgs) {
-      await ctx.reply(msg, { parse_mode: 'HTML', ...this.buildMainKeyboard(await this.isSuperAdmin(ctx)) });
+      await ctx.reply(msg, {
+        parse_mode: 'HTML',
+        ...this.buildMainKeyboard(await this.isSuperAdmin(ctx)),
+      });
     }
   }
 
   private async handleCourierOrders(ctx: Context) {
     const chatId = ctx.chat?.id?.toString();
     if (!chatId) {
-      await ctx.reply("Chat ID topilmadi.");
+      await ctx.reply('Chat ID topilmadi.');
       return;
     }
 
@@ -552,7 +628,7 @@ export class TelegramUpdate {
     });
 
     if (!courier || courier.role !== UserRole.COURIER) {
-      await ctx.reply("Kuryer profili topilmadi.", this.buildCourierKeyboard());
+      await ctx.reply('Kuryer profili topilmadi.', this.buildCourierKeyboard());
       return;
     }
 
@@ -629,15 +705,41 @@ export class TelegramUpdate {
     const username = ctx.from?.username || '';
     const firstName = ctx.from?.first_name || '';
 
+    await this.sendOptionalSticker(ctx, 'welcome');
+
     const text = (ctx as any).message?.text || '';
-    if (text.startsWith('/start user_join_')) {
-      const token = text.replace('/start user_join_', '').trim();
-      const userId = verifyTelegramUserJoinToken(
-        token,
-        this.getTelegramLinkSecret(),
-      );
+    const isUserJoinToken = text.includes('user_join_');
+
+    if (isUserJoinToken) {
+      const match = text.match(/user_join_([a-zA-Z0-9_-]+)/);
+      const rawToken = match ? match[1] : '';
+      const userId = rawToken
+        ? verifyTelegramUserJoinToken(rawToken, this.getTelegramLinkSecret())
+        : null;
 
       if (!userId) {
+        const existingLinked = await this.prisma.user.findFirst({
+          where: {
+            OR: [
+              { telegramChatId: chatId },
+              ...(username ? [{ telegramUsername: username }] : []),
+            ],
+          },
+        });
+        if (existingLinked) {
+          await ctx.reply(
+            `✅ Salom, <b>${existingLinked.name}</b>!\n\nProfilingiz allaqachon botga bog'langan. Saytda buyurtmani davom ettirishingiz mumkin.`,
+            {
+              parse_mode: 'HTML',
+              reply_markup: {
+                keyboard: [[{ text: this.MENU_MAIN_SEARCH }]],
+                resize_keyboard: true,
+              },
+            },
+          );
+          return;
+        }
+
         await ctx.reply(
           "❌ Bu biriktirish havolasi yaroqsiz yoki muddati o'tgan. Saytdan botga qayta kirib ko'ring.",
         );
@@ -651,7 +753,7 @@ export class TelegramUpdate {
 
       if (!user) {
         await ctx.reply(
-          "❌ Foydalanuvchi topilmadi. Iltimos, saytga qayta kiring va botga qayta ulaning.",
+          '❌ Foydalanuvchi topilmadi. Iltimos, saytga qayta kiring va botga qayta ulaning.',
         );
         return;
       }
@@ -682,7 +784,6 @@ export class TelegramUpdate {
 
       if (this.pendingCourierApprovals.has(chatId)) {
         await this.prisma.user.update({
-
           where: { id: user.id },
           data: {
             role: UserRole.COURIER,
@@ -711,10 +812,7 @@ export class TelegramUpdate {
         return;
       }
 
-      if (
-        linkedRole === UserRole.ADMIN ||
-        linkedRole === UserRole.SUPERADMIN
-      ) {
+      if (linkedRole === UserRole.ADMIN || linkedRole === UserRole.SUPERADMIN) {
         await ctx.reply(
           `✅ ${user.name}, Telegram profilingiz muvaffaqiyatli bog'landi.`,
           { ...this.buildMainKeyboard(await this.isSuperAdmin(ctx)) },
@@ -726,7 +824,7 @@ export class TelegramUpdate {
         `✅ ${user.name}, Telegram profilingiz muvaffaqiyatli bog'landi. Endi saytda buyurtma berishingiz mumkin.`,
         {
           reply_markup: {
-            keyboard: [[{ text: '🔍 Gilam qidirish' }]],
+            keyboard: [[{ text: this.MENU_MAIN_SEARCH }]],
             resize_keyboard: true,
             input_field_placeholder: 'Gilam nomini yozing...',
           },
@@ -741,15 +839,13 @@ export class TelegramUpdate {
       const inviteEntry = this.sellerInviteTokens.get(token);
 
       if (!inviteEntry) {
-        await ctx.reply(
-          "❌ Sotuvchi havolasi yaroqsiz yoki muddati tugagan.",
-        );
+        await ctx.reply('❌ Sotuvchi havolasi yaroqsiz yoki muddati tugagan.');
         return;
       }
 
       if (inviteEntry.usedByChatId && inviteEntry.usedByChatId !== chatId) {
         await ctx.reply(
-          "❌ Bu havola allaqachon boshqa foydalanuvchi tomonidan ishlatilgan.",
+          '❌ Bu havola allaqachon boshqa foydalanuvchi tomonidan ishlatilgan.',
         );
         return;
       }
@@ -834,12 +930,14 @@ export class TelegramUpdate {
       const inviteEntry = this.courierInviteTokens.get(token);
 
       if (!inviteEntry) {
-        await ctx.reply("❌ Kuryer havolasi yaroqsiz yoki muddati tugagan.");
+        await ctx.reply('❌ Kuryer havolasi yaroqsiz yoki muddati tugagan.');
         return;
       }
 
       if (inviteEntry.usedByChatId && inviteEntry.usedByChatId !== chatId) {
-        await ctx.reply("❌ Bu havola allaqachon boshqa foydalanuvchi tomonidan ishlatilgan.");
+        await ctx.reply(
+          '❌ Bu havola allaqachon boshqa foydalanuvchi tomonidan ishlatilgan.',
+        );
         return;
       }
 
@@ -847,7 +945,10 @@ export class TelegramUpdate {
         where: {
           OR: [
             { telegramChatId: chatId },
-            { telegramUsername: username && username !== '' ? username : undefined },
+            {
+              telegramUsername:
+                username && username !== '' ? username : undefined,
+            },
           ],
         },
       });
@@ -862,7 +963,10 @@ export class TelegramUpdate {
         const autoName =
           firstName?.trim() ||
           (username ? `@${username}` : `Kuryer ${chatId.slice(-4)}`);
-        const phoneDigits = chatId.replace(/\D/g, '').slice(-9).padStart(9, '0');
+        const phoneDigits = chatId
+          .replace(/\D/g, '')
+          .slice(-9)
+          .padStart(9, '0');
         const autoPhone = `+998${phoneDigits}`;
         const autoEmail = `tg-courier-${chatId}-${Date.now()}@yec.local`;
         const autoPassword = await bcrypt.hash(
@@ -883,18 +987,27 @@ export class TelegramUpdate {
         });
 
         this.pendingCourierApprovals.delete(chatId);
-        await ctx.reply(`✅ ${autoName}, siz kuryer sifatida tayinlandingiz.`, this.buildCourierKeyboard());
+        await ctx.reply(
+          `✅ ${autoName}, siz kuryer sifatida tayinlandingiz.`,
+          this.buildCourierKeyboard(),
+        );
         return;
       }
 
       await this.prisma.$transaction(async (tx) => {
         await tx.user.updateMany({
-          where: { id: { not: existingCourierCandidate.id }, telegramChatId: chatId },
+          where: {
+            id: { not: existingCourierCandidate.id },
+            telegramChatId: chatId,
+          },
           data: { telegramChatId: null },
         });
         if (username) {
           await tx.user.updateMany({
-            where: { id: { not: existingCourierCandidate.id }, telegramUsername: username },
+            where: {
+              id: { not: existingCourierCandidate.id },
+              telegramUsername: username,
+            },
             data: { telegramUsername: null },
           });
         }
@@ -922,7 +1035,7 @@ export class TelegramUpdate {
         process.env.ADMIN_INVITE_SECRET || 'yec_toshkent_admin_secret_2024';
 
       if (secret !== expectedSecret) {
-        await ctx.reply("❌ Yaroqsiz yoki eskirgan taklif havolasi.");
+        await ctx.reply('❌ Yaroqsiz yoki eskirgan taklif havolasi.');
         return;
       }
       if (this.pendingRequests.has(chatId)) {
@@ -1090,7 +1203,9 @@ export class TelegramUpdate {
 
     if (this.pendingCourierApprovals.has(chatId)) {
       if (!user) {
-        await ctx.reply("✅ Siz kuryer sifatida tasdiqlangansiz. Iltimos, avval yecmarket.uz saytida ro'yxatdan o'ting, keyin /start bosing.");
+        await ctx.reply(
+          "✅ Siz kuryer sifatida tasdiqlangansiz. Iltimos, avval yecmarket.uz saytida ro'yxatdan o'ting, keyin /start bosing.",
+        );
         return;
       }
       const approvedUser = user;
@@ -1173,7 +1288,10 @@ export class TelegramUpdate {
         ? `👋 Xush kelibsiz, <b>Sotuvchi</b>!\n\nQidiruv tugmasidan foydalanib mahsulot izlashingiz mumkin.`
         : `✅ Xush kelibsiz! Siz sotuvchi sifatida tanindingiz.`;
 
-      await ctx.reply(msg, { parse_mode: 'HTML', ...this.buildSellerKeyboard() });
+      await ctx.reply(msg, {
+        parse_mode: 'HTML',
+        ...this.buildSellerKeyboard(),
+      });
       return;
     }
 
@@ -1219,7 +1337,7 @@ export class TelegramUpdate {
     // Default: Welcome everyone and show search instructions
     if (!user || !user.telegramChatId) {
       const welcomeMsg = `👋 Salom, <b>${firstName}</b>!\n\n<b>YEC Market</b> botiga xush kelibsiz.\n\nSaytimiz orqali buyurtma berish uchun, iltimos avval bot yordamida profilingizni tasdiqlang. (Pastdagi tugmani bosing)`;
-      await ctx.reply(welcomeMsg, { 
+      await ctx.reply(welcomeMsg, {
         parse_mode: 'HTML',
         reply_markup: {
           keyboard: [
@@ -1228,23 +1346,21 @@ export class TelegramUpdate {
           ],
           resize_keyboard: true,
           one_time_keyboard: true,
-          input_field_placeholder: "Raqam yuboring yoki qidiring..."
-        }
+          input_field_placeholder: 'Raqam yuboring yoki qidiring...',
+        },
       });
       return;
     }
 
     const welcomeMsg = `👋 Salom, <b>${firstName}</b>!\n\n<b>YEC Market</b> botiga xush kelibsiz. Siz saytimiz uchun Telegram profilingizni tasdiqlagansiz. Bemalol buyurtma qilishingiz mumkin!\n\n🔍 Gilam qidirish uchun shunchaki uning <b>nomini</b> yoki <b>kodini</b> yozing yoki tugmadan foydalaning.`;
-    
-    await ctx.reply(welcomeMsg, { 
+
+    await ctx.reply(welcomeMsg, {
       parse_mode: 'HTML',
       reply_markup: {
-        keyboard: [
-          [{ text: this.MENU_MAIN_SEARCH }],
-        ],
+        keyboard: [[{ text: this.MENU_MAIN_SEARCH }]],
         resize_keyboard: true,
-        input_field_placeholder: "Gilam nomini yozing..."
-      }
+        input_field_placeholder: 'Gilam nomini yozing...',
+      },
     });
   }
 
@@ -1255,33 +1371,53 @@ export class TelegramUpdate {
       // Photo is handled natively without a state, but we can instruct the user
       await ctx.reply(
         "🖼️ <b>Rasm bilan qidirish</b>\n\nQidirmoqchi bo'lgan gilam rasmini botga yuboring va izohiga (caption) maqsadni yozing.",
-        { parse_mode: 'HTML' }
+        { parse_mode: 'HTML' },
       );
     }
   }
 
   private async handleSearchName(ctx: Context) {
     const chatId = ctx.chat?.id.toString();
-    if (chatId) {
-      this.clearSearchState(chatId);
-      this.searchNameState.add(chatId);
+    if (!chatId) return;
+
+    this.clearSearchState(chatId);
+    this.searchNameState.add(chatId);
+
+    const names = await this.getAvailableNames();
+    if (names.length === 0) {
       await ctx.reply(
-        "📍 <b>Nom bilan qidirish</b>\n\nGilam nomini kiriting (masalan: <i>Verona</i>):",
-        { parse_mode: 'HTML' }
+        'Hozircha gilam nomlari topilmadi.',
+        await this.buildSearchKeyboard(ctx),
       );
+      this.searchNameState.delete(chatId);
+      return;
     }
+
+    await ctx.reply(
+      'Gilam nomini tanlang:',
+      this.buildBackFirstKeyboard(names, 'Gilam nomini tanlang'),
+    );
   }
 
   private async handleSearchCode(ctx: Context) {
     const chatId = ctx.chat?.id.toString();
-    if (chatId) {
-      this.clearSearchState(chatId);
-      this.searchCodeState.add(chatId);
-      await ctx.reply(
-        "🔢 <b>Gul kodi bilan qidirish</b>\n\nGilam kodi yoki naqsh kodini kiriting:",
-        { parse_mode: 'HTML' }
-      );
-    }
+    if (!chatId) return;
+
+    this.clearSearchState(chatId);
+    this.searchCodeState.add(chatId);
+
+    await ctx.reply(
+      '🔢 <b>Gul kodi bilan qidirish</b>\n\nGilam kodi yoki naqsh kodini yozib yuboring (masalan: <i>P101A</i>):',
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          keyboard: [[{ text: this.MENU_BACK }]],
+          resize_keyboard: true,
+          one_time_keyboard: false,
+          is_persistent: true,
+        },
+      },
+    );
   }
 
   private async handleSearchSize(ctx: Context) {
@@ -1293,14 +1429,17 @@ export class TelegramUpdate {
 
     const sizes = await this.getAvailableSizes();
     if (sizes.length === 0) {
-      await ctx.reply("Hozircha razmerlar topilmadi.", await this.buildSearchKeyboard(ctx));
+      await ctx.reply(
+        'Hozircha razmerlar topilmadi.',
+        await this.buildSearchKeyboard(ctx),
+      );
       this.searchSizeState.delete(chatId);
       return;
     }
 
     await ctx.reply(
-      "Razmerni tanlang:",
-      this.buildBackFirstKeyboard(sizes, "Razmerni tanlang"),
+      'Razmerni tanlang:',
+      this.buildBackFirstKeyboard(sizes, 'Razmerni tanlang'),
     );
   }
 
@@ -1313,14 +1452,17 @@ export class TelegramUpdate {
 
     const categories = await this.getAvailableCategoryNames();
     if (categories.length === 0) {
-      await ctx.reply("Hozircha turlar topilmadi.", await this.buildSearchKeyboard(ctx));
+      await ctx.reply(
+        'Hozircha turlar topilmadi.',
+        await this.buildSearchKeyboard(ctx),
+      );
       this.searchCategoryState.delete(chatId);
       return;
     }
 
     await ctx.reply(
-      "Turini tanlang:",
-      this.buildBackFirstKeyboard(categories, "Turini tanlang"),
+      'Turini tanlang:',
+      this.buildBackFirstKeyboard(categories, 'Turini tanlang'),
     );
   }
 
@@ -1329,6 +1471,7 @@ export class TelegramUpdate {
     const callbackCtx = ctx as any;
     const data = callbackCtx.callbackQuery?.data;
     if (!data) return;
+    const chatId = ctx.chat?.id.toString() || '';
 
     await callbackCtx.answerCbQuery();
 
@@ -1336,18 +1479,215 @@ export class TelegramUpdate {
     const isAdmin = await this.isAdmin(ctx);
     const isCourier = await this.isCourier(ctx);
 
-    // Allow customers to respond to delivery confirmation buttons
+    // Allow search/filter/like callbacks for all users
+    const isSearchCallback =
+      data.startsWith('search_') ||
+      data.startsWith('filter_') ||
+      data.startsWith('like_') ||
+      data.startsWith('similar_') ||
+      data.startsWith('settings_');
+
     const isCustomerCallback =
       data.startsWith('user_confirm_arrival_') ||
-      data.startsWith('user_reject_arrival_');
+      data.startsWith('user_reject_arrival_') ||
+      isSearchCallback;
 
-    if (!isSeller && !isCourier && !isCustomerCallback) {
-      await ctx.reply('Bu amal faqat adminlar, sotuvchilar yoki kuryerlar uchun.');
+    if (!isSeller && !isCourier && !isCustomerCallback && !isAdmin) {
+      await ctx.reply("Bu amal faqat ro'yxatdan o'tgan xodimlar uchun.");
       return;
     }
 
+    // Handle search-related callbacks first
+    if (data.startsWith('like_toggle_')) {
+      const carpetId = data.replace('like_toggle_', '');
+      await this.handleLikeToggle(ctx, carpetId);
+      return;
+    }
 
-    if (data === 'get_invite_link' || data === 'new_orders' || data.startsWith('approve_admin_') || data.startsWith('reject_admin_')) {
+    if (data.startsWith('similar_search_')) {
+      const carpetId = data.replace('similar_search_', '');
+      await this.handleSimilarSearch(ctx, carpetId);
+      return;
+    }
+
+    if (data === 'search_page_next') {
+      const state = this.userSearchState.get(chatId);
+      if (state) {
+        state.page++;
+        await this.renderSearchResults(ctx, state);
+      }
+      return;
+    }
+
+    if (data === 'search_page_prev') {
+      const state = this.userSearchState.get(chatId);
+      if (state && state.page > 1) {
+        state.page--;
+        await this.renderSearchResults(ctx, state);
+      }
+      return;
+    }
+
+    if (data.startsWith('filter_menu_')) {
+      const type = data.replace('filter_menu_', '');
+      await this.handleFilterMenu(ctx, type);
+      return;
+    }
+
+    if (data === 'filter_clear') {
+      const state = this.userSearchState.get(chatId);
+      if (state) {
+        this.userSearchState.set(chatId, { query: state.query, page: 1 });
+        await this.renderSearchResults(ctx, this.userSearchState.get(chatId)!);
+      }
+      return;
+    }
+
+    if (data.startsWith('filter_category_set_')) {
+      const catId = data.replace('filter_category_set_', '');
+      const state = this.userSearchState.get(chatId) || { query: '', page: 1 };
+      state.categoryId = catId;
+      state.page = 1;
+      this.userSearchState.set(chatId, state);
+      await this.renderSearchResults(ctx, state);
+      return;
+    }
+
+    if (data.startsWith('filter_size_set_')) {
+      const sizeVal = data.replace('filter_size_set_', '');
+      const state = this.userSearchState.get(chatId) || { query: '', page: 1 };
+      state.size = sizeVal;
+      state.page = 1;
+      this.userSearchState.set(chatId, state);
+      await this.renderSearchResults(ctx, state);
+      return;
+    }
+
+    if (data.startsWith('filter_color_set_')) {
+      const colorVal = data.replace('filter_color_set_', '');
+      const state = this.userSearchState.get(chatId) || { query: '', page: 1 };
+      state.query = state.query ? `${state.query} ${colorVal}` : colorVal;
+      state.page = 1;
+      this.userSearchState.set(chatId, state);
+      await this.renderSearchResults(ctx, state);
+      return;
+    }
+
+    if (data.startsWith('filter_shape_set_')) {
+      const shapeVal = data.replace('filter_shape_set_', '');
+      const state = this.userSearchState.get(chatId) || { query: '', page: 1 };
+      state.shape = shapeVal;
+      state.page = 1;
+      this.userSearchState.set(chatId, state);
+      await this.renderSearchResults(ctx, state);
+      return;
+    }
+
+    if (data.startsWith('filter_material_set_')) {
+      const matVal = data.replace('filter_material_set_', '');
+      const state = this.userSearchState.get(chatId) || { query: '', page: 1 };
+      state.material = matVal;
+      state.page = 1;
+      this.userSearchState.set(chatId, state);
+      await this.renderSearchResults(ctx, state);
+      return;
+    }
+
+    if (data.startsWith('filter_price_set_')) {
+      const range = data.replace('filter_price_set_', '');
+      const state = this.userSearchState.get(chatId) || { query: '', page: 1 };
+      if (range === 'low') {
+        state.minPrice = 0;
+        state.maxPrice = 300000;
+      } else if (range === 'mid') {
+        state.minPrice = 300000;
+        state.maxPrice = 600000;
+      } else if (range === 'high') {
+        state.minPrice = 600000;
+        state.maxPrice = undefined;
+      }
+      state.page = 1;
+      this.userSearchState.set(chatId, state);
+      await this.renderSearchResults(ctx, state);
+      return;
+    }
+
+    if (data.startsWith('filter_status_set_')) {
+      const statusVal = data.replace('filter_status_set_', '');
+      const state = this.userSearchState.get(chatId) || { query: '', page: 1 };
+      if (statusVal === 'promo') {
+        state.onlyPromo = true;
+        state.onlyNew = false;
+        state.onlyAvailable = true;
+      } else if (statusVal === 'new') {
+        state.onlyNew = true;
+        state.onlyPromo = false;
+        state.onlyAvailable = true;
+      } else if (statusVal === 'available') {
+        state.onlyAvailable = true;
+        state.onlyPromo = false;
+        state.onlyNew = false;
+      }
+      state.page = 1;
+      this.userSearchState.set(chatId, state);
+      await this.renderSearchResults(ctx, state);
+      return;
+    }
+
+    if (data === 'settings_orders') {
+      const user = await this.prisma.user.findFirst({
+        where: { telegramChatId: chatId },
+      });
+      if (!user) {
+        await ctx.reply("Siz hali ro'yxatdan o'tmagansiz.");
+        return;
+      }
+      const orders = await this.prisma.order.findMany({
+        where: { customerId: user.id },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      if (orders.length === 0) {
+        await ctx.reply('Sizda hali buyurtmalar mavjud emas.');
+        return;
+      }
+      let ordersMsg = `📦 <b>Mening oxirgi buyurtmalarim</b>:\n\n`;
+      orders.forEach((o, index) => {
+        ordersMsg +=
+          `${index + 1}. Buyurtma: <code>#${formatOrderNumber(o.id)}</code>\n` +
+          `Sana: ${new Date(o.createdAt).toLocaleDateString()}\n` +
+          `Holati: <b>${o.status}</b>\n` +
+          `Summa: ${(Number(o.remainingAmount) + Number(o.paidAmount)).toLocaleString()} so'm\n\n`;
+      });
+      await ctx.reply(ordersMsg, { parse_mode: 'HTML' });
+      return;
+    }
+
+    if (data === 'settings_branches') {
+      const msg =
+        `🏢 <b>YEC Market filiallari:</b>\n\n` +
+        `📍 <b>Toshkent shahar filiali:</b>\n` +
+        `Manzil: Toshkent sh., Chilonzor tumani, Lutfiy ko'chasi, 24-uy\n` +
+        `Mo'ljal: Lutfiy bog'i ro'parasi\n` +
+        `Ish vaqti: 09:00 - 20:00\n` +
+        `Telefon: +998 90 123 45 67\n\n` +
+        `📍 <b>Samarqand filiali:</b>\n` +
+        `Manzil: Samarqand sh., Registon ko'chasi, 5-uy\n` +
+        `Mo'ljal: Registon maydoni yaqinida\n` +
+        `Ish vaqti: 09:00 - 19:00\n` +
+        `Telefon: +998 93 765 43 21`;
+      await ctx.reply(msg, { parse_mode: 'HTML' });
+      return;
+    }
+
+    if (
+      data === 'get_invite_link' ||
+      data === 'new_orders' ||
+      data.startsWith('approve_admin_') ||
+      data.startsWith('reject_admin_') ||
+      data.startsWith('admin_return_approve_') ||
+      data.startsWith('admin_return_reject_')
+    ) {
       if (!isAdmin) {
         await ctx.reply('Bu amal faqat adminlar uchun.');
         return;
@@ -1466,6 +1806,412 @@ export class TelegramUpdate {
       );
       return;
     }
+    if (data.startsWith('admin_return_approve_')) {
+      if (!isAdmin) {
+        await ctx.reply('Bu amal faqat adminlar uchun.');
+        return;
+      }
+      const orderId = data.replace('admin_return_approve_', '');
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { returnRequest: true },
+      });
+      if (!order || !order.returnRequest) {
+        await ctx.reply("Qaytarish so'rovi topilmadi.");
+        return;
+      }
+      if (order.returnRequest.status !== 'RETURN_REQUESTED') {
+        await ctx.reply("Bu so'rov allaqachon ko'rib chiqilgan.");
+        return;
+      }
+
+      this.pendingReturnApprovals.set(chatId, orderId);
+      await ctx.reply(
+        `Buyurtma #${orderId} uchun kuryer (yetkazib berish) xarajatini kiriting (faqat raqam kiriting, masalan: 80000):`,
+      );
+      return;
+    }
+
+    if (data.startsWith('admin_return_confirm_')) {
+      if (!isAdmin) {
+        await ctx.reply('Bu amal faqat adminlar uchun.');
+        return;
+      }
+      const parts = data.replace('admin_return_confirm_', '').split('_');
+      const orderId = parts[0];
+      const deliveryCost = parseInt(parts[1] || '0');
+
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { returnRequest: true, items: { include: { carpet: true } } },
+      });
+
+      if (!order || !order.returnRequest) {
+        await ctx.reply("Qaytarish so'rovi topilmadi.");
+        return;
+      }
+
+      if (
+        order.returnRequest.status !== 'RETURN_REQUESTED' &&
+        order.returnRequest.status !== 'RETURN_UNDER_REVIEW'
+      ) {
+        await ctx.reply(
+          "⚠️ Bu so'rov allaqachon ko'rib chiqilgan (double-refund protection).",
+        );
+        return;
+      }
+
+      const paidAmount = Number(order.paidAmount);
+      const refundAmount = Math.max(0, paidAmount - deliveryCost);
+      let conversionInfoText = '';
+
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          // Concurrency lock checks:
+          const freshOrder = await tx.order.findUnique({
+            where: { id: orderId },
+          });
+          if (!freshOrder || freshOrder.version !== order.version) {
+            throw new BadRequestException(
+              'Optimistic lock error: Order has been updated by another transaction.',
+            );
+          }
+          const existingReturnedCarpet = await tx.inventoryItem.findFirst({
+            where: { returnRequestId: order.returnRequest!.id },
+          });
+          if (existingReturnedCarpet) {
+            throw new BadRequestException(
+              "Bu qaytarish so'rovi uchun inventar yozuvi allaqachon yaratilgan.",
+            );
+          }
+
+          // 1. Update ReturnRequest status to RETURN_APPROVED
+          await tx.returnRequest.update({
+            where: { orderId },
+            data: {
+              status: 'RETURN_APPROVED',
+              deliveryCost,
+              refundAmount,
+              version: { increment: 1 },
+            },
+          });
+
+          // 2. Update Order status to REFUNDED
+          await tx.order.update({
+            where: { id: orderId, version: freshOrder.version },
+            data: {
+              status: 'REFUNDED',
+              version: { increment: 1 },
+            },
+          });
+
+          // 3. Register payment history
+          await tx.paymentHistory.create({
+            data: {
+              orderId,
+              paymentType: 'REFUND',
+              gateway: order.paymentMethod || 'CASH',
+              transactionId: `REF_TX_${Date.now()}`,
+              amount: refundAmount,
+              status: 'SUCCESS',
+            },
+          });
+
+          // 4. Restore Inventories or Create Returned Standalone Carpet
+          for (const item of order.items) {
+            if (!item.carpetId || !item.carpet) continue;
+
+            if (item.isReturnedInventoryCreated) {
+              throw new BadRequestException(
+                'Ushbu mahsulot uchun qaytarilgan inventar yozuvi allaqachon yaratilgan.',
+              );
+            }
+
+            const orderItemRoll = await tx.orderItemRoll.findFirst({
+              where: { orderItemId: item.id },
+            });
+
+            if (orderItemRoll) {
+              const parentCarpet = item.carpet;
+
+              // If parent is already a returned item
+              const allocations = await tx.orderItemInventory.findMany({
+                where: { orderItemId: item.id },
+                include: { inventory: true },
+              });
+              const isAlreadyReturnedItem =
+                allocations.length > 0 && allocations[0].inventory.isReturned;
+
+              if (isAlreadyReturnedItem) {
+                const targetItem = allocations[0].inventory;
+                await tx.inventoryItem.update({
+                  where: { id: targetItem.id },
+                  data: {
+                    inventoryStatus: CarpetInventoryStatus.ACTIVE,
+                  },
+                });
+
+                await tx.orderItemRoll.update({
+                  where: { id: orderItemRoll.id },
+                  data: { status: 'RESTOCKED' },
+                });
+
+                await tx.rollAllocationHistory.create({
+                  data: {
+                    rollInventoryId: orderItemRoll.rollInventoryId,
+                    orderId,
+                    lengthCm: orderItemRoll.lengthCm,
+                    action: 'RETURNED',
+                    actor: 'TELEGRAM_BOT',
+                  },
+                });
+
+                await tx.auditLog.create({
+                  data: {
+                    action: 'ROLL_RETURN_CONVERTED',
+                    who: 'TELEGRAM_BOT',
+                    orderId,
+                    oldValue: JSON.stringify({ stock: 0, status: 'SOLD' }),
+                    newValue: JSON.stringify({ stock: 1, status: 'ACTIVE' }),
+                    reason:
+                      'Returned roll carpet restocked back to active inventory via Telegram Bot',
+                  },
+                });
+
+                conversionInfoText +=
+                  `♻️ Qaytarilgan gilam omborga qayta qo'shildi (Eski qaytgan gilam)\n` +
+                  `<b>Kolleksiya:</b> ${parentCarpet.name}\n` +
+                  `<b>Barcode:</b> ${targetItem.barcode}\n` +
+                  `<b>SKU:</b> ${targetItem.sku || '-'}\n` +
+                  `<b>O'lcham:</b> ${orderItemRoll.widthCm / 100}x${orderItemRoll.lengthCm / 100} m\n` +
+                  `<b>Qoldiq:</b> 1 dona\n` +
+                  `<b>Holati:</b> ACTIVE\n\n`;
+              } else {
+                const newBarcode = await this.generateUniqueBarcode(tx);
+                const newSku = await this.generateUniqueSku(
+                  tx,
+                  parentCarpet.designCode || 'DC',
+                  orderItemRoll.widthCm,
+                  orderItemRoll.lengthCm,
+                );
+                const calculatedArea =
+                  (orderItemRoll.widthCm * orderItemRoll.lengthCm) / 10000;
+                const originalPricePerM2 = Number(
+                  item.pricePerM2 || parentCarpet.price,
+                );
+                const calculatedPiecePrice = Math.round(
+                  originalPricePerM2 * calculatedArea,
+                );
+
+                const newInventoryItem = await tx.inventoryItem.create({
+                  data: {
+                    carpetId: parentCarpet.id,
+                    barcode: newBarcode,
+                    sku: newSku,
+                    widthMm: orderItemRoll.widthCm * 10,
+                    lengthMm: orderItemRoll.lengthCm * 10,
+                    size: `${orderItemRoll.widthCm / 100}x${orderItemRoll.lengthCm / 100}`,
+                    pricePerM2: originalPricePerM2,
+                    piecePrice: calculatedPiecePrice,
+                    selectedArea: calculatedArea,
+                    isReturned: true,
+                    returnRequestId: order.returnRequest!.id,
+                    returnCreatedAt: new Date(),
+                    returnGeneration: 1,
+                    inventorySource: 'RETURN',
+                    sourceOrderId: orderId,
+                    sourceOrderItemId: item.id,
+                    inventoryStatus: CarpetInventoryStatus.ACTIVE,
+                  },
+                });
+
+                await tx.orderItemRoll.update({
+                  where: { id: orderItemRoll.id },
+                  data: { status: 'RESTOCKED' },
+                });
+
+                await tx.rollAllocationHistory.create({
+                  data: {
+                    rollInventoryId: orderItemRoll.rollInventoryId,
+                    orderId,
+                    lengthCm: orderItemRoll.lengthCm,
+                    action: 'RETURNED',
+                    actor: 'TELEGRAM_BOT',
+                  },
+                });
+
+                const durationMs =
+                  Date.now() - order.returnRequest!.createdAt.getTime();
+                await tx.auditLog.create({
+                  data: {
+                    action: 'ROLL_RETURN_CONVERTED',
+                    who: 'TELEGRAM_BOT',
+                    orderId,
+                    oldValue: JSON.stringify({
+                      oldPrice: parentCarpet.price,
+                      previousStock: 0,
+                      previousStatus: 'SOLD',
+                    }),
+                    newValue: JSON.stringify({
+                      newInventoryItemId: newInventoryItem.id,
+                      newBarcode,
+                      newSku,
+                      piecePrice: calculatedPiecePrice,
+                      pricePerM2: originalPricePerM2,
+                      area: calculatedArea,
+                      conversionDurationMs: durationMs,
+                      newStock: 1,
+                      newStatus: 'ACTIVE',
+                      inventorySource: 'RETURN',
+                    }),
+                    reason:
+                      'Returned roll carpet successfully converted into individual standalone inventory item via Telegram Bot',
+                  },
+                });
+
+                conversionInfoText +=
+                  `♻️ Qaytarilgan gilam omborga qo'shildi (Yangi alohida bo'lak)\n` +
+                  `<b>Kolleksiya:</b> ${parentCarpet.name}\n` +
+                  `<b>Design:</b> ${parentCarpet.designCode || 'N/A'}\n` +
+                  `<b>Yangi Barcode:</b> ${newBarcode}\n` +
+                  `<b>Yangi SKU:</b> ${newSku}\n` +
+                  `<b>O'lcham:</b> ${orderItemRoll.widthCm / 100}x${orderItemRoll.lengthCm / 100} m\n` +
+                  `<b>Maydon:</b> ${calculatedArea.toFixed(2)} m²\n` +
+                  `<b>Narxi:</b> ${calculatedPiecePrice.toLocaleString('uz-UZ')} so'm\n` +
+                  `<b>Original Order:</b> #${orderId}\n` +
+                  `<b>Original Customer:</b> ${order.customerId}\n` +
+                  `<b>Return Request:</b> ${order.returnRequest!.id}\n` +
+                  `<b>Operator:</b> TELEGRAM_BOT\n` +
+                  `<b>Qoldiq:</b> 1 dona\n` +
+                  `<b>Holati:</b> ACTIVE\n` +
+                  `<b>Asl rulonga qayta qo'shilmadi.</b>\n\n`;
+              }
+            } else {
+              // Ready carpet return: restock allocations to ACTIVE
+              const allocations = await tx.orderItemInventory.findMany({
+                where: { orderItemId: item.id },
+              });
+              const invIds = allocations.map((a) => a.inventoryId);
+              if (invIds.length > 0) {
+                await tx.inventoryItem.updateMany({
+                  where: { id: { in: invIds } },
+                  data: { inventoryStatus: CarpetInventoryStatus.ACTIVE },
+                });
+              }
+
+              await tx.inventoryLedger.create({
+                data: {
+                  carpetId: item.carpetId,
+                  quantity: item.quantity,
+                  action: 'REFUND',
+                  actor: 'TELEGRAM_BOT',
+                  reason: `Returned & restocked order #${orderId}`,
+                },
+              });
+            }
+
+            await tx.orderItem.update({
+              where: { id: item.id },
+              data: { isReturnedInventoryCreated: true },
+            });
+          }
+
+          // 5. Enqueue Notification
+          await tx.notificationQueue.create({
+            data: {
+              channel: 'TELEGRAM',
+              recipient: order.customerId,
+              message: `Sizning #${orderId} raqamli buyurtmangiz bo'yicha pul qaytarildi. Qaytarilgan summa: ${refundAmount.toLocaleString('uz-UZ')} so'm.`,
+              status: 'PENDING',
+            },
+          });
+        });
+
+        await ctx.reply(
+          `✅ Qaytarish tasdiqlandi va rasmiylashtirildi!\n\n` +
+            `<b>Refund:</b> ${refundAmount.toLocaleString('uz-UZ')} so'm\n` +
+            `<b>Delivery:</b> ${deliveryCost.toLocaleString('uz-UZ')} so'm\n` +
+            `<b>Reason:</b> Delivery Cost\n\n` +
+            conversionInfoText,
+          { parse_mode: 'HTML' },
+        );
+
+        // Notify customer
+        const customer = await this.prisma.user.findUnique({
+          where: { id: order.customerId },
+        });
+        if (customer && customer.telegramChatId) {
+          try {
+            await this.telegramService.sendRaw(
+              customer.telegramChatId,
+              `✅ Sizning #${orderId} raqamli buyurtmangiz bo'yicha qaytarish so'rovingiz tasdiqlandi.\n\n` +
+                `<b>Qaytariladigan summa:</b> ${refundAmount.toLocaleString('uz-UZ')} so'm\n` +
+                `<b>Yetkazib berish xarajati:</b> ${deliveryCost.toLocaleString('uz-UZ')} so'm`,
+            );
+          } catch {}
+        }
+      } catch (txErr) {
+        await ctx.reply(`⚠️ Xatolik yuz berdi: ${(txErr as Error).message}`);
+      }
+      return;
+    }
+
+    if (data.startsWith('admin_return_cancel_')) {
+      if (!isAdmin) {
+        await ctx.reply('Bu amal faqat adminlar uchun.');
+        return;
+      }
+      const orderId = data.replace('admin_return_cancel_', '');
+      await ctx.reply('❌ Qaytarish bekor qilindi.');
+      return;
+    }
+
+    if (data.startsWith('admin_return_reject_')) {
+      if (!isAdmin) {
+        await ctx.reply('Bu amal faqat adminlar uchun.');
+        return;
+      }
+      const orderId = data.replace('admin_return_reject_', '');
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { returnRequest: true },
+      });
+      if (!order || !order.returnRequest) {
+        await ctx.reply("Qaytarish so'rovi topilmadi.");
+        return;
+      }
+      if (order.returnRequest.status !== 'RETURN_REQUESTED') {
+        await ctx.reply("Bu so'rov allaqachon ko'rib chiqilgan.");
+        return;
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.returnRequest.update({
+          where: { orderId },
+          data: { status: 'RETURN_REJECTED' },
+        });
+        await tx.order.update({
+          where: { id: orderId },
+          data: { status: 'RETURN_REJECTED' },
+        });
+      });
+
+      await ctx.reply("❌ Qaytarish so'rovi rad etildi.");
+
+      const customer = await this.prisma.user.findUnique({
+        where: { id: order.customerId },
+      });
+      if (customer && customer.telegramChatId) {
+        try {
+          await this.telegramService.sendRaw(
+            customer.telegramChatId,
+            `❌ Sizning #${orderId} raqamli buyurtmangiz uchun qaytarish so'rovingiz rad etildi.`,
+          );
+        } catch {}
+      }
+      return;
+    }
+
     if (data.startsWith('courier_delivered_')) {
       const orderId = data.replace('courier_delivered_', '');
       const order = await this.prisma.order.findUnique({
@@ -1475,7 +2221,9 @@ export class TelegramUpdate {
       if (!order) return;
 
       if (!order.customer?.telegramChatId) {
-        await ctx.reply("Mijozning Telegram IDsi topilmadi. Holatni sayt orqali o'zgartiring.");
+        await ctx.reply(
+          "Mijozning Telegram IDsi topilmadi. Holatni sayt orqali o'zgartiring.",
+        );
         return;
       }
 
@@ -1487,8 +2235,14 @@ export class TelegramUpdate {
         {
           inline_keyboard: [
             [
-              { text: 'Ha ✅', callback_data: `user_confirm_arrival_${order.id}` },
-              { text: 'Yo\'q ❌', callback_data: `user_reject_arrival_${order.id}` },
+              {
+                text: 'Ha ✅',
+                callback_data: `user_confirm_arrival_${order.id}`,
+              },
+              {
+                text: "Yo'q ❌",
+                callback_data: `user_reject_arrival_${order.id}`,
+              },
             ],
           ],
         },
@@ -1510,7 +2264,8 @@ export class TelegramUpdate {
       });
 
       // Thank-you sticker (animated celebration sticker)
-      const thankYouSticker = 'CAACAgIAAxkBAAEBmZ1mX7Z2V8T2XtQJ5bHQ3dT5J4TqUAAC2BQAAiHkaEuLxhfI7g4fGzUE';
+      const thankYouSticker =
+        'CAACAgIAAxkBAAEBmZ1mX7Z2V8T2XtQJ5bHQ3dT5J4TqUAAC2BQAAiHkaEuLxhfI7g4fGzUE';
 
       // Find customer chatId
       const customerUser = await this.prisma.user.findUnique({
@@ -1519,8 +2274,13 @@ export class TelegramUpdate {
       });
       if (customerUser?.telegramChatId) {
         try {
-          await this.telegramService.sendSticker(customerUser.telegramChatId, thankYouSticker);
-        } catch { /* ignore */ }
+          await this.telegramService.sendSticker(
+            customerUser.telegramChatId,
+            thankYouSticker,
+          );
+        } catch {
+          /* ignore */
+        }
         await this.telegramService.sendRaw(
           customerUser.telegramChatId,
           `🎉 <b>Katta rahmat!</b>\n\n<b>#${formatOrderNumber(order.id, order.createdAt)}</b> buyurtmangizni qabul qilganingiz tasdiqlandi!\n\nYEC Market gilamlaridan xarid qilganingiz uchun minnatdormiz. Sifatli xizmatimizdan yana foydalanishni kutib qolamiz! 🌟`,
@@ -1544,7 +2304,7 @@ export class TelegramUpdate {
       });
 
       if (!order) {
-        await ctx.reply("Buyurtma topilmadi.");
+        await ctx.reply('Buyurtma topilmadi.');
         return;
       }
 
@@ -1560,10 +2320,12 @@ export class TelegramUpdate {
           `⚠️ <b>Ogohlantirish!</b>\n\n<b>#${formatOrderNumber(order.id, order.createdAt)}</b> buyurtma mijoz tomonidan <b>tasdiqlanmadi</b>.\n\nMijoz bilan bog'laning va qayta tasdiqlashni so'rang.`,
           {
             inline_keyboard: [
-              [{
-                text: '✅ Yetkazildi (qayta)',
-                callback_data: `courier_delivered_${order.id}`,
-              }],
+              [
+                {
+                  text: '✅ Yetkazildi (qayta)',
+                  callback_data: `courier_delivered_${order.id}`,
+                },
+              ],
             ],
           },
         );
@@ -1577,7 +2339,6 @@ export class TelegramUpdate {
       return;
     }
   }
-
 
   @Command('carpets')
   async onCarpets(@Ctx() ctx: Context) {
@@ -1598,6 +2359,62 @@ export class TelegramUpdate {
     const isAdmin = await this.isAdmin(ctx);
     const isSeller = await this.isSeller(ctx);
     const isCourier = await this.isCourier(ctx);
+
+    if (isAdmin && this.pendingReturnApprovals.has(chatId)) {
+      const orderId = this.pendingReturnApprovals.get(chatId)!;
+      const deliveryCost = parseInt(text.replace(/\s/g, ''));
+      if (isNaN(deliveryCost) || deliveryCost < 0) {
+        await ctx.reply(
+          "Iltimos, kuryer xarajatini raqam ko'rinishida kiriting (masalan: 80000):",
+        );
+        return;
+      }
+
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { items: true },
+      });
+
+      if (!order) {
+        this.pendingReturnApprovals.delete(chatId);
+        await ctx.reply('Buyurtma topilmadi.');
+        return;
+      }
+
+      const paidAmount = Number(order.paidAmount);
+      const refundAmount = Math.max(0, paidAmount - deliveryCost);
+
+      this.pendingReturnApprovals.delete(chatId);
+
+      const previewMessage =
+        `━━━━━━━━━━━━━━━\n` +
+        `🔍 <b>REFUND PREVIEW</b>\n\n` +
+        `<b>Paid:</b> ${paidAmount.toLocaleString('uz-UZ')} so'm\n` +
+        `<b>Delivery Cost:</b> ${deliveryCost.toLocaleString('uz-UZ')} so'm\n` +
+        `<b>Refund Amount:</b> ${refundAmount.toLocaleString('uz-UZ')} so'm\n\n` +
+        `Confirm?`;
+
+      const replyMarkup = {
+        inline_keyboard: [
+          [
+            {
+              text: '✅ Confirm Refund',
+              callback_data: `admin_return_confirm_${orderId}_${deliveryCost}`,
+            },
+            {
+              text: '❌ Cancel',
+              callback_data: `admin_return_cancel_${orderId}`,
+            },
+          ],
+        ],
+      };
+
+      await ctx.reply(previewMessage, {
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup,
+      });
+      return;
+    }
 
     if (isAdmin) {
       if (text === this.MENU_BACK) {
@@ -1745,32 +2562,95 @@ export class TelegramUpdate {
         return;
       }
     } else {
-      if (text === this.MENU_BACK || text === this.MENU_CUSTOMER_BACK) {
+      if (text === '🔍 Gilam qidirish') {
+        this.clearSearchState(chatId);
+        this.carpetSearchState.add(chatId);
+        await ctx.reply(
+          "🔍 Gilam izlash uchun uning nomi, o'lchami (masalan: 3x2) yoki kodini kiriting:",
+          {
+            reply_markup: {
+              keyboard: [[{ text: '🔙 Orqaga' }]],
+              resize_keyboard: true,
+            },
+          },
+        );
+        return;
+      }
+
+      if (text === '🖼 Rasm orqali qidirish') {
+        this.clearSearchState(chatId);
+        this.activePhotoSearchChats.add(chatId);
+        await ctx.reply(
+          '🖼 Rasm orqali qidirish uchun gilam rasmini yuboring:',
+          {
+            reply_markup: {
+              keyboard: [[{ text: '🔙 Orqaga' }]],
+              resize_keyboard: true,
+            },
+          },
+        );
+        return;
+      }
+
+      if (text === '📂 Kategoriyalar') {
+        this.clearSearchState(chatId);
+        await this.handleCategoriesMenu(ctx);
+        return;
+      }
+
+      if (text === "📏 O'lcham bo'yicha") {
+        this.clearSearchState(chatId);
+        await this.handleSizesMenu(ctx);
+        return;
+      }
+
+      if (text === '💎 Premium') {
+        this.clearSearchState(chatId);
+        await this.handlePremiumSearch(ctx);
+        return;
+      }
+
+      if (text === '❤️ Sevimlilar') {
+        this.clearSearchState(chatId);
+        await this.handleFavoritesMenu(ctx);
+        return;
+      }
+
+      if (text === '📞 Operator') {
+        await ctx.reply(
+          "📞 Operator bilan bog'lanish:\n\nTelegram: @Saloxiddin_977\n\nSavollaringiz bo'lsa, bemalol yozishingiz mumkin!",
+        );
+        return;
+      }
+
+      if (text === '⚙ Sozlamalar') {
+        await this.handleSettingsMenu(ctx);
+        return;
+      }
+
+      if (
+        text === '🔙 Orqaga' ||
+        text === this.MENU_BACK ||
+        text === this.MENU_CUSTOMER_BACK
+      ) {
+        this.clearSearchState(chatId);
+        await this.showCustomerMenu(ctx, 'Asosiy menyu.');
+        return;
+      }
+    }
+
+    if (this.carpetSearchState.has(chatId)) {
+      if (text === '🔙 Orqaga' || text === this.MENU_BACK) {
         this.clearSearchState(chatId);
         await this.showCustomerMenu(ctx, 'Asosiy menyu.');
         return;
       }
 
-      if (text === '🔍 Mahsulot qidirish' || text === this.MENU_MAIN_SEARCH) {
-        this.clearSearchState(chatId);
-        await this.showSearchMenu(ctx);
-        return;
-      }
-
-      if (text === this.MENU_SEARCH_SIZE) {
-        await this.handleSearchSize(ctx);
-        return;
-      }
-
-      if (text === this.MENU_SEARCH_CATEGORY) {
-        await this.handleSearchCategory(ctx);
-        return;
-      }
-
-      if (text === this.MENU_SEARCH_NAME) {
-        await this.handleSearchName(ctx);
-        return;
-      }
+      this.clearSearchState(chatId);
+      const state = { query: text, page: 1 };
+      this.userSearchState.set(chatId, state);
+      await this.renderSearchResults(ctx, state);
+      return;
     }
 
     if (this.searchSizeState.has(chatId)) {
@@ -1784,13 +2664,15 @@ export class TelegramUpdate {
       if (!sizes.includes(text)) {
         await ctx.reply(
           'Iltimos, mavjud razmerlardan birini tanlang.',
-          this.buildBackFirstKeyboard(sizes, "Razmerni tanlang"),
+          this.buildBackFirstKeyboard(sizes, 'Razmerni tanlang'),
         );
         return;
       }
 
       this.clearSearchState(chatId);
-      await this.processCarpetSearch(ctx, text);
+      const state = { query: '', size: text, page: 1 };
+      this.userSearchState.set(chatId, state);
+      await this.renderSearchResults(ctx, state);
       return;
     }
 
@@ -1801,8 +2683,19 @@ export class TelegramUpdate {
         return;
       }
 
+      const names = await this.getAvailableNames();
+      if (!names.includes(text)) {
+        await ctx.reply(
+          'Iltimos, mavjud gilam nomlaridan birini tanlang.',
+          this.buildBackFirstKeyboard(names, 'Gilam nomini tanlang'),
+        );
+        return;
+      }
+
       this.clearSearchState(chatId);
-      await this.processCarpetSearch(ctx, text);
+      const state = { query: text, page: 1 };
+      this.userSearchState.set(chatId, state);
+      await this.renderSearchResults(ctx, state);
       return;
     }
 
@@ -1814,7 +2707,9 @@ export class TelegramUpdate {
       }
 
       this.clearSearchState(chatId);
-      await this.processCarpetSearch(ctx, text, true); // Search by code
+      const state = { query: text, page: 1 };
+      this.userSearchState.set(chatId, state);
+      await this.renderSearchResults(ctx, state);
       return;
     }
 
@@ -1829,85 +2724,72 @@ export class TelegramUpdate {
       if (!categories.includes(text)) {
         await ctx.reply(
           'Iltimos, mavjud turlardan birini tanlang.',
-          this.buildBackFirstKeyboard(categories, "Turini tanlang"),
+          this.buildBackFirstKeyboard(categories, 'Turini tanlang'),
         );
         return;
       }
 
       this.clearSearchState(chatId);
-      await this.processCarpetSearch(ctx, text);
+      const category = await this.prisma.category.findFirst({
+        where: { name: text },
+      });
+      const state = { query: '', categoryId: category?.id, page: 1 };
+      this.userSearchState.set(chatId, state);
+      await this.renderSearchResults(ctx, state);
       return;
     }
-    
+
     // Check if it's any other navigation button we might have missed
     const knownButtons = [
-        '🔙 Orqaga', '✅ Tasdiqlash', '❌ Bekor qilish', this.MENU_SELLERS_BACK, this.MENU_BACK
+      '🔙 Orqaga',
+      '✅ Tasdiqlash',
+      '❌ Bekor qilish',
+      this.MENU_SELLERS_BACK,
+      this.MENU_BACK,
     ];
     if (knownButtons.includes(text)) return;
 
     // Direct search for everyone
-    return this.processCarpetSearch(ctx, text);
+    const state = { query: text, page: 1 };
+    this.userSearchState.set(chatId, state);
+    await this.renderSearchResults(ctx, state);
+    return;
   }
 
-  private async processCarpetSearch(ctx: Context, query: string, isByCode = false) {
+  private async processCarpetSearch(
+    ctx: Context,
+    query: string,
+    isByCode = false,
+  ) {
     const chatId = ctx.chat!.id.toString();
-    const priceRange = this.getPriceRangeFromSearch(query);
-    const normalizedQuery = this.normalizeQuery(query);
-    
-    let where: any;
-    if (priceRange) {
-      where = { stock: { gt: 0 } };
-    } else if (isByCode) {
-      where = {
-        OR: [
-          { designCode: { contains: query, mode: 'insensitive' as const } },
-        ],
-        stock: { gt: 0 },
-      };
-    } else {
-      where = {
-        OR: [
-          { name: { contains: query, mode: 'insensitive' as const } },
-          { name: { contains: normalizedQuery, mode: 'insensitive' as const } },
-          { designCode: { contains: query, mode: 'insensitive' as const } },
-          { description: { contains: query, mode: 'insensitive' as const } },
-          { size: { contains: query, mode: 'insensitive' as const } },
-          { category: { name: { contains: query, mode: 'insensitive' as const } } }
-        ],
-        stock: { gt: 0 },
-      };
-    }
 
-    const carpets = await this.prisma.carpet.findMany({
-      where,
-      take: 10,
-      include: { category: true },
-      orderBy: { createdAt: 'desc' },
+    const { results } = await this.searchService.search(query, {
+      limit: 10,
     });
 
-    const filteredCarpets = priceRange
-      ? carpets.filter((c) => this.matchesPriceSearch(c, priceRange))
-      : this.rankSearchResults(query, normalizedQuery, carpets);
-
-    if (filteredCarpets.length === 0) {
+    if (results.length === 0) {
       return ctx.reply(
         `🔍 "<b>${query}</b>" bo'yicha hech qanday gilam topilmadi.`,
         { parse_mode: 'HTML' },
       );
     }
 
-    await ctx.reply(`✅ Topildi: <b>${filteredCarpets.length} ta</b> natija.`, {
+    await ctx.reply(`✅ Topildi: <b>${results.length} ta</b> natija.`, {
       parse_mode: 'HTML',
     });
 
-    for (const carpet of filteredCarpets.slice(0, 5)) {
+    for (const item of results.slice(0, 5)) {
+      const carpet = item;
+      const sizeDisplay = carpet.sizes?.[0]?.sizeStr || '0x0';
+      const stock = carpet.sizes?.reduce((sum, s) => sum + s.stock, 0) || 1;
+
       const msg =
         `✨ <b>${carpet.name}</b> ✨\n\n` +
-        `📂 <b>Kategoriya:</b> ${carpet.category?.name || "Noma'lum"}\n` +
+        `📂 <b>Kategoriya:</b> ${carpet.categoryName || "Noma'lum"}\n` +
         `💰 <b>Narxi:</b> ${Number(carpet.price).toLocaleString()} so'm / m²\n` +
         `🧵 <b>Material:</b> ${carpet.material || "Noma'lum"}\n` +
-        `📍 <b>O'lchami:</b> ${carpet.size || "Noma'lum"}\n` +
-        `📦 <b>Zaxirada:</b> ${carpet.stock} ta\n\n` +
+        `📍 <b>O'lchami:</b> ${sizeDisplay}\n` +
+        `📦 <b>Zaxirada:</b> ${stock} ta\n\n` +
         `🔗 <a href="https://yecmarket.uz/carpets/${carpet.id}">Veb-saytda ko'rish</a>`;
 
       const inlineKeyboard = {
@@ -1915,7 +2797,7 @@ export class TelegramUpdate {
           inline_keyboard: [
             [
               {
-                text: '🛒 Saytda ko\'rish',
+                text: "🛒 Saytda ko'rish",
                 url: `https://yecmarket.uz/carpets/${carpet.id}`,
               },
             ],
@@ -1954,10 +2836,13 @@ export class TelegramUpdate {
     }
 
     const identifier = parts[1];
-    
+
     // Normalize phone if given
     let normalizedIdentifier = identifier;
-    if (/^\d/.test(normalizedIdentifier) && !normalizedIdentifier.startsWith('+')) {
+    if (
+      /^\d/.test(normalizedIdentifier) &&
+      !normalizedIdentifier.startsWith('+')
+    ) {
       const digits = normalizedIdentifier.replace(/\D/g, '');
       let localDigits = '';
       if (digits.startsWith('998')) {
@@ -1971,7 +2856,11 @@ export class TelegramUpdate {
 
     const targetUser = await this.prisma.user.findFirst({
       where: {
-        OR: [{ email: identifier }, { phone: normalizedIdentifier }, { phone: identifier }],
+        OR: [
+          { email: identifier },
+          { phone: normalizedIdentifier },
+          { phone: identifier },
+        ],
       },
     });
 
@@ -1999,9 +2888,12 @@ export class TelegramUpdate {
     }
 
     const identifier = parts[1];
-    
+
     let normalizedIdentifier = identifier;
-    if (/^\d/.test(normalizedIdentifier) && !normalizedIdentifier.startsWith('+')) {
+    if (
+      /^\d/.test(normalizedIdentifier) &&
+      !normalizedIdentifier.startsWith('+')
+    ) {
       const digits = normalizedIdentifier.replace(/\D/g, '');
       let localDigits = '';
       if (digits.startsWith('998')) {
@@ -2015,15 +2907,24 @@ export class TelegramUpdate {
 
     const targetUser = await this.prisma.user.findFirst({
       where: {
-        OR: [{ email: identifier }, { phone: normalizedIdentifier }, { phone: identifier }],
+        OR: [
+          { email: identifier },
+          { phone: normalizedIdentifier },
+          { phone: identifier },
+        ],
       },
     });
 
     if (!targetUser) {
-      return ctx.reply(`Foydalanuvchi topilmadi. Raqam yoki Email to'g'riligiga ishonch hosil qiling.`);
+      return ctx.reply(
+        `Foydalanuvchi topilmadi. Raqam yoki Email to'g'riligiga ishonch hosil qiling.`,
+      );
     }
 
-    if (targetUser.role === UserRole.SUPERADMIN || targetUser.role === UserRole.ADMIN) {
+    if (
+      targetUser.role === UserRole.SUPERADMIN ||
+      targetUser.role === UserRole.ADMIN
+    ) {
       return ctx.reply(`Bu foydalanuvchi allaqachon Admin yoki Super Admin.`);
     }
 
@@ -2032,7 +2933,9 @@ export class TelegramUpdate {
       data: { role: UserRole.SELLER },
     });
 
-    return ctx.reply(`✅ ${targetUser.name} endi Sotuvchi (SELLER)!\nEndi bu foydalanuvchi bot orqali gilam qidirish imkoniyatlaridan to'liq foydalana oladi.`);
+    return ctx.reply(
+      `✅ ${targetUser.name} endi Sotuvchi (SELLER)!\nEndi bu foydalanuvchi bot orqali gilam qidirish imkoniyatlaridan to'liq foydalana oladi.`,
+    );
   }
 
   @Command('invite')
@@ -2056,209 +2959,235 @@ export class TelegramUpdate {
     const message = (ctx as any).message;
     if (!message || !message.contact) return;
 
-    let phone = message.contact.phone_number;
-    if (!phone.startsWith('+')) {
-      phone = '+' + phone;
-    }
-    
+    const phone = message.contact.phone_number || '';
     const chatId = ctx.chat!.id.toString();
     const username = ctx.from?.username || '';
-    
-    // Normalize phone number
+
     const digits = phone.replace(/\D/g, '');
-    let localDigits = '';
-    if (digits.startsWith('998')) {
-      localDigits = digits.slice(3, 12);
-    } else {
-      localDigits = digits.slice(0, 9);
-    }
-    const compact = localDigits.padEnd(9, '');
-    const standardPhone = `+998${compact}`;
-    
-    const user = await this.prisma.user.findFirst({
-      where: { phone: standardPhone }
+    const clean9Digits = digits.slice(-9);
+    const standardPhone = `+998${clean9Digits}`;
+
+    let user = await this.prisma.user.findFirst({
+      where: {
+        phone: { contains: clean9Digits },
+      },
     });
 
+    if (!user) {
+      const allUsers = await this.prisma.user.findMany();
+      user =
+        allUsers.find(
+          (u) => u.phone && u.phone.replace(/\D/g, '').endsWith(clean9Digits),
+        ) || null;
+    }
+
     if (user) {
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: {
-          telegramChatId: chatId,
-          telegramUsername: username,
-        }
+      await this.prisma.$transaction(async (tx) => {
+        await tx.user.updateMany({
+          where: { id: { not: user.id }, telegramChatId: chatId },
+          data: { telegramChatId: null },
+        });
+
+        await tx.user.update({
+          where: { id: user.id },
+          data: {
+            telegramChatId: chatId,
+            telegramUsername: username || null,
+          },
+        });
       });
+
       await ctx.reply(
-        `✅ Zo'r! Telefon raqamingiz muvaffaqiyatli ulandi (${standardPhone}).\n\nEndi siz bizning saytimiz (yecmarket.uz) orqali bemalol rasmiy buyurtmalar qoldirishingiz mumkin va holatlar haqida shu yerdan xabardor bo'lib turasiz!`,
-        { 
+        `✅ Salom, <b>${user.name}</b>!\n\nTelefon raqamingiz bo'yicha profilingiz botga muvaffaqiyatli bog'landi! Endi yecmarket.uz saytiga qaytib buyurtmani rasmiylashtirishingiz mumkin.`,
+        {
           parse_mode: 'HTML',
           reply_markup: {
-            keyboard: [
-              [{ text: '🔍 Gilam qidirish' }],
-            ],
+            keyboard: [[{ text: this.MENU_MAIN_SEARCH }]],
             resize_keyboard: true,
-            input_field_placeholder: "Gilam nomini yozing..."
-          }
-        }
+          },
+        },
       );
     } else {
       await ctx.reply(
-        `Kechirasiz, ${standardPhone} raqami bilan saytimizda ro'yxatdan o'tgan foydalanuvchi topilmadi.\n\nIltimos, avval saytimizdan (*yecmarket.uz*) aynan shu raqam bilan ro'yxatdan o'ting, so'ngra botga qaytib /start tugmasini bosing!`,
-        { parse_mode: 'Markdown' }
+        `❌ Kechirasiz, ${standardPhone} raqami bilan saytimizda ro'yxatdan o'tgan foydalanuvchi topilmadi.\n\nIltimos, avval saytimizdan (yecmarket.uz) aynan shu raqam bilan ro'yxatdan o'ting, so'ngra botga qaytib qayta urinib ko'ring.`,
       );
     }
   }
 
   @On('photo')
   async onPhoto(@Ctx() ctx: Context) {
-    if (!(await this.isSeller(ctx))) return;
-
+    const chatId = ctx.chat!.id.toString();
+    const isSellerUser = await this.isSeller(ctx);
     const message = (ctx as any).message;
-    const caption = (message.caption || '').trim();
-    if (!caption) {
-      await ctx.reply("Iltimos, rasm bilan birga gilam nomini (masalan: Verona) yozib yuboring.");
-      return;
-    }
-
     const photos = message.photo;
-    const bestPhoto = photos[photos.length - 1]; // largest resolution
+    if (!photos || photos.length === 0) return;
 
-    let firstMsg: any = null;
-    let secondMsg: any = null;
+    const bestPhoto = photos[photos.length - 1]; // largest resolution
+    let searchingMsg: any = null;
 
     try {
-      firstMsg = await ctx.reply(`🔍 "${caption}" bo'yicha bazadan qidirilyapti...`);
+      searchingMsg = await ctx.reply(
+        "🔍 Yuborilgan rasm bo'yicha YEC katalogidan qidirilmoqda...",
+      );
 
-      const jimp = require('jimp');
+      // 1. Download photo from Telegram
       const axios = require('axios');
-
       const fileLink = await ctx.telegram.getFileLink(bestPhoto.file_id);
-      const response = await axios.default.get(fileLink.href, { responseType: 'arraybuffer' });
-      let uploadedImg = await jimp.read(Buffer.from(response.data));
-
-      // Smart crop to focus on the carpet and remove background floor/wall
-      uploadedImg = await this.smartCrop(uploadedImg);
-
-      const normalizedCaption = this.normalizeQuery(caption);
-      const carpets = await this.prisma.carpet.findMany({
-        where: {
-          OR: [
-            { name: { contains: caption, mode: 'insensitive' } },
-            { name: { contains: normalizedCaption, mode: 'insensitive' } },
-            { description: { contains: caption, mode: 'insensitive' } },
-          ],
-        },
-        include: { category: true },
+      const downloadRes = await axios.get(fileLink.href, {
+        responseType: 'arraybuffer',
       });
+      const imageBuffer = Buffer.from(downloadRes.data);
 
-      if (carpets.length === 0) {
-        await ctx.reply(`❌ Bazada "${caption}" nomli gilam topilmadi.`);
-        return;
-      }
+      // 2. Perform visual search using similarity engine
+      const matches = await this.similarityService.searchCatalog(
+        imageBuffer,
+        10,
+      );
 
-      secondMsg = await ctx.reply(`⏳ ${carpets.length} ta "${caption}" gilamlari rasmlari bilan solishtirilmoqda...`);
-      
-      // Delete the first message immediately after the second one is sent
-      if (firstMsg) {
-        try { 
-          await ctx.telegram.deleteMessage(ctx.chat!.id, firstMsg.message_id); 
-          firstMsg = null;
+      // Delete searching message
+      if (searchingMsg) {
+        try {
+          await ctx.telegram.deleteMessage(
+            ctx.chat!.id,
+            searchingMsg.message_id,
+          );
         } catch (e) {}
       }
 
-      const results: {carpet: any, dist: number, imgPath: string}[] = [];
-      const uniqueImages = new Map<string, any>();
-      
-      for (const c of carpets) {
-        if (c.images && c.images[0]) {
-          // If we have multiple sizes of same carpet, they share the same image usually, but user wants to see "qaysi gilam", so let's keep all carpets but only hash unique images once to save time
-          if (!uniqueImages.has(c.images[0])) {
-            uniqueImages.set(c.images[0], { carpet: c, dist: 1 });
-          }
-        }
-      }
-
-       for (const [imgPath, data] of uniqueImages.entries()) {
-        const photoInput = this.resolveCarpetPhoto(imgPath);
-        if (photoInput && typeof photoInput !== 'string' && 'source' in photoInput) {
-           try {
-             const localImg = await jimp.read(photoInput.source);
-             
-             // Normalize both images to improve matching under different lighting
-             uploadedImg.normalize();
-             localImg.normalize();
- 
-             // Much higher resolution for fine "kichik detallar"
-             uploadedImg.resize(256, 256);
-             localImg.resize(256, 256);
-  
-             const structuralDist = jimp.distance(uploadedImg, localImg);
-             const colorDist = this.calculateGridColorDistance(uploadedImg, localImg);
-             
-             // Weighted score: more robust to color/brightness shifts
-             data.dist = structuralDist * 0.4 + colorDist * 0.6;
-           } catch (e) {
-             this.logger.warn(`Could not read local image: ${e.message}`);
-           }
-        }
-      }
- 
-      // Re-map back to all carpets so we return exactly the sizes/carpets matched
-      for (const c of carpets) {
-        if (c.images && c.images[0]) {
-            const match = uniqueImages.get(c.images[0]);
-            if (match && match.dist < 1) {
-              results.push({ carpet: c, dist: match.dist, imgPath: c.images[0] });
-            }
-        }
-      }
- 
-      // Delete the second searching message (first one already deleted)
-      if (secondMsg) {
-        try { await ctx.telegram.deleteMessage(ctx.chat!.id, secondMsg.message_id); } catch (e) {}
-      }
- 
-      if (results.length === 0) {
-        await ctx.reply("❌ Rasm solishtirish uchun mahalliy rasmlar topilmadi yoki o'qishda xatolik yuz berdi.");
+      if (matches.length === 0) {
+        await ctx.reply(
+          "❌ Kechirasiz, katalogimizdan ushbu rasmga o'xshash gilamlar topilmadi.",
+        );
         return;
       }
- 
-      // Sort best matches first
-      results.sort((a, b) => a.dist - b.dist);
- 
-      let matchesToReturn: {carpet: any, dist: number, imgPath: string}[] = [];
-      const bestMatch = results[0];
- 
-      if (bestMatch.dist <= 0.08) {
-        // High confidence match (improved with smart crop and weighted color)
-        matchesToReturn = [bestMatch];
-        await ctx.reply(`🎯 Juda aniq moslik topildi! (Moslik darajasi: ${((1 - bestMatch.dist) * 100).toFixed(1)}%)`);
-      } else if (bestMatch.dist <= 0.18) {
-        // Medium confidence match
-        matchesToReturn = results.slice(0, 3);
-        await ctx.reply(`O'xshash gilamlar topildi. Eng yaxshi natijalar:`);
-      }
 
-      for (const res of matchesToReturn) {
-        const c = res.carpet;
-        const photo = this.resolveCarpetPhoto(res.imgPath);
-        const msg = `<b>${c.name}</b>\nNarxi: ${Number(c.price).toLocaleString()} so'm\nRazmer: ${c.size}\nKodi: ${c.designCode || c.code || 'N/A'}`;
+      await ctx.reply(
+        `🎯 <b>Rasm orqali qidiruv natijalari:</b> Eng yaqin 10 ta o'xshash variant topildi:`,
+        { parse_mode: 'HTML' },
+      );
+
+      // Show top 10 matches
+      const topMatches = matches.slice(0, 10);
+      for (const res of topMatches) {
+        const dbCarpet = await this.prisma.carpet.findFirst({
+          where: {
+            name: res.collectionName,
+            designCode: res.designCode,
+            isArchived: false,
+          },
+          include: { category: true },
+        });
+
+        if (!dbCarpet) continue;
+
+        let sizesList = '';
+        let stockCount = 0;
+
+        if (dbCarpet.type === 'ROLL') {
+          const rolls = await this.prisma.rollInventory.findMany({
+            where: { carpetId: dbCarpet.id },
+            select: { widthCm: true, currentLengthCm: true },
+          });
+          sizesList =
+            rolls
+              .map((r) => `${r.widthCm / 100} x ${r.currentLengthCm / 100} m`)
+              .join(', ') || "Noma'lum";
+          stockCount = rolls.reduce(
+            (sum, r) => sum + (r.currentLengthCm > 0 ? 1 : 0),
+            0,
+          );
+        } else {
+          const activeItems = await this.prisma.inventoryItem.findMany({
+            where: { carpetId: dbCarpet.id, inventoryStatus: 'ACTIVE' },
+            select: { widthMm: true, lengthMm: true },
+          });
+          sizesList =
+            activeItems
+              .map(
+                (i) =>
+                  `${Math.round(i.widthMm / 10) / 100} x ${Math.round(i.lengthMm / 10) / 100} m`,
+              )
+              .join(', ') || "Noma'lum";
+          stockCount = activeItems.length;
+        }
+
+        const textMsg =
+          `✨ <b>${res.collectionName} ${res.designCode}</b> ✨\n` +
+          `🎯 <b>O'xshashlik:</b> ${res.matchPercent}%\n` +
+          `💵 Narxi: ${Number(dbCarpet.price).toLocaleString()} so'm / m²\n` +
+          `📏 O'lchamlari: ${sizesList}\n` +
+          `📦 Qoldiq: ${stockCount} dona\n`;
+
+        // Check if user already liked this carpet
+        const user = await this.prisma.user.findFirst({
+          where: { telegramChatId: chatId },
+        });
+        let isLiked = false;
+        if (user) {
+          const like = await this.prisma.carpetLike.findUnique({
+            where: {
+              userId_carpetId: { userId: user.id, carpetId: dbCarpet.id },
+            },
+          });
+          isLiked = !!like;
+        }
+
         const inlineKeyboard = {
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🛒 Saytda ko\'rish', url: `https://yecmarket.uz/carpets/${c.id}` }]
-            ]
-          }
+              [
+                {
+                  text: '🛒 Sotib olish',
+                  url: `https://yecmarket.uz/carpets/${dbCarpet.id}`,
+                },
+                {
+                  text: isLiked ? '❤️ Saqlangan' : '🖤 Saqlash',
+                  callback_data: `like_toggle_${dbCarpet.id}`,
+                },
+              ],
+              [
+                {
+                  text: '📤 Ulashish',
+                  url: `https://t.me/share/url?url=https://yecmarket.uz/carpets/${dbCarpet.id}&text=${encodeURIComponent('YEC Marketda ajoyib gilam topdim: ' + dbCarpet.name)}`,
+                },
+                {
+                  text: "🔍 O'xshashlar",
+                  callback_data: `similar_search_${dbCarpet.id}`,
+                },
+              ],
+              [
+                {
+                  text: '📞 Operator',
+                  url: 'https://t.me/Saloxiddin_977',
+                },
+              ],
+            ],
+          },
         };
 
-        if (photo) {
-          await this.telegramService.sendPhoto(ctx.chat!.id.toString(), photo, msg, inlineKeyboard.reply_markup);
+        const photoInput = this.resolveCarpetPhoto(res.image);
+        if (photoInput) {
+          await this.telegramService.sendPhoto(
+            ctx.chat!.id.toString(),
+            photoInput,
+            textMsg,
+            inlineKeyboard.reply_markup,
+          );
         } else {
-          await ctx.reply(msg, { parse_mode: 'HTML', ...inlineKeyboard });
+          await ctx.reply(textMsg, { parse_mode: 'HTML', ...inlineKeyboard });
         }
       }
     } catch (e) {
-      this.logger.error(`Error in onPhoto: ${e.message}`);
-      await ctx.reply(`Xatolik yuz berdi: ${e.message}`);
+      this.logger.error(`Error in onPhoto visual search: ${e.message}`);
+      if (searchingMsg) {
+        try {
+          await ctx.telegram.deleteMessage(
+            ctx.chat!.id,
+            searchingMsg.message_id,
+          );
+        } catch (err) {}
+      }
+      await ctx.reply(`Qidiruv jarayonida xatolik yuz berdi: ${e.message}`);
     }
   }
 
@@ -2322,7 +3251,7 @@ export class TelegramUpdate {
     if (withoutLeading.startsWith('images/')) {
       const local = this.resolveFrontPublicAsset(withoutLeading);
       if (local) return { source: local };
-const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
+      const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
       if (frontUrl) {
         return `${frontUrl}/${withoutLeading}`;
       }
@@ -2657,8 +3586,7 @@ const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
     if (
       normalizedName === 'touch' ||
       normalizedName.startsWith('touch-') ||
-      compact === 'touchgold' ||
-      compact === 'touchblue'
+      compact.startsWith('touch')
     ) {
       return 'touch';
     }
@@ -2713,11 +3641,16 @@ const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
     const q = query.toLowerCase();
     // Common synonyms/transliterations
     if (q === 'eron' || q.includes('eron')) return q.replace('eron', 'iran');
-    if (q === 'turkiya' || q.includes('turk')) return q.replace('turkiya', 'turk');
+    if (q === 'turkiya' || q.includes('turk'))
+      return q.replace('turkiya', 'turk');
     return q;
   }
 
-  private rankSearchResults(query: string, normalized: string, carpets: any[]): any[] {
+  private rankSearchResults(
+    query: string,
+    normalized: string,
+    carpets: any[],
+  ): any[] {
     const q = query.toLowerCase();
     const n = normalized.toLowerCase();
 
@@ -2729,7 +3662,7 @@ const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
         if (!name) return 0;
         if (name === q || name === n) return 100; // Exact match
         if (name.startsWith(q) || name.startsWith(n)) return 80; // Starts with
-        
+
         // Whole word match
         const words = name.split(/[\s_-]+/);
         if (words.includes(q) || words.includes(n)) return 60;
@@ -2738,7 +3671,8 @@ const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
         if (name.includes(q) || name.includes(n)) {
           // If it's a substring match, shorter names are usually more relevant
           // or matches closer to the start
-          const idx = name.indexOf(q) !== -1 ? name.indexOf(q) : name.indexOf(n);
+          const idx =
+            name.indexOf(q) !== -1 ? name.indexOf(q) : name.indexOf(n);
           return 40 - idx - name.length / 10;
         }
         return 0;
@@ -2752,7 +3686,7 @@ const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
     const GRID_SIZE = 16;
     const cellW = Math.floor(img1.bitmap.width / GRID_SIZE);
     const cellH = Math.floor(img1.bitmap.height / GRID_SIZE);
-    
+
     let totalDist = 0;
     let totalWeight = 0;
 
@@ -2762,17 +3696,29 @@ const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
         const isCenter = gx >= 4 && gx < 12 && gy >= 4 && gy < 12;
         const weight = isCenter ? 2 : 1;
 
-        const avg1 = this.getAverageColorInRegion(img1, gx * cellW, gy * cellH, cellW, cellH);
-        const avg2 = this.getAverageColorInRegion(img2, gx * cellW, gy * cellH, cellW, cellH);
+        const avg1 = this.getAverageColorInRegion(
+          img1,
+          gx * cellW,
+          gy * cellH,
+          cellW,
+          cellH,
+        );
+        const avg2 = this.getAverageColorInRegion(
+          img2,
+          gx * cellW,
+          gy * cellH,
+          cellW,
+          cellH,
+        );
 
-        const rD = (avg1.r - avg2.r);
-        const gD = (avg1.g - avg2.g);
-        const bD = (avg1.b - avg2.b);
-        
+        const rD = avg1.r - avg2.r;
+        const gD = avg1.g - avg2.g;
+        const bD = avg1.b - avg2.b;
+
         // Weighted Euclidean distance for human perception: sqrt(2*rD^2 + 4*gD^2 + 3*bD^2)
         // Normalized by max possible distance (sqrt(2*255^2 + 4*255^2 + 3*255^2) ≈ 765)
         const d = Math.sqrt(2 * rD * rD + 4 * gD * gD + 3 * bD * bD) / 765;
-        
+
         totalDist += d * weight;
         totalWeight += weight;
       }
@@ -2784,10 +3730,13 @@ const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
   private async smartCrop(img: any): Promise<any> {
     const w = img.bitmap.width;
     const h = img.bitmap.height;
-    
+
     // Simple edge detection/content discovery
     // We sample pixels to find the bounding box that excludes low-variance outer regions
-    let minX = w, maxX = 0, minY = h, maxY = 0;
+    let minX = w,
+      maxX = 0,
+      minY = h,
+      maxY = 0;
     const threshold = 30; // Contrast threshold
 
     // Skip every few pixels for performance
@@ -2796,22 +3745,29 @@ const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
       for (let x = step; x < w - step; x += step) {
         const idx = (w * y + x) << 2;
         const r = img.bitmap.data[idx];
-        const g = img.bitmap.data[idx+1];
-        const b = img.bitmap.data[idx+2];
+        const g = img.bitmap.data[idx + 1];
+        const b = img.bitmap.data[idx + 2];
 
         // Compare with neighbors to find edges
         const rightIdx = (w * y + (x + step)) << 2;
         const downIdx = (w * (y + step) + x) << 2;
-        
-        const dr = Math.abs(r - img.bitmap.data[rightIdx]);
-        const dg = Math.abs(g - img.bitmap.data[rightIdx+1]);
-        const db = Math.abs(b - img.bitmap.data[rightIdx+2]);
-        
-        const dr2 = Math.abs(r - img.bitmap.data[downIdx]);
-        const dg2 = Math.abs(g - img.bitmap.data[downIdx+1]);
-        const db2 = Math.abs(b - img.bitmap.data[downIdx+2]);
 
-        if (dr > threshold || dg > threshold || db > threshold || dr2 > threshold || dg2 > threshold || db2 > threshold) {
+        const dr = Math.abs(r - img.bitmap.data[rightIdx]);
+        const dg = Math.abs(g - img.bitmap.data[rightIdx + 1]);
+        const db = Math.abs(b - img.bitmap.data[rightIdx + 2]);
+
+        const dr2 = Math.abs(r - img.bitmap.data[downIdx]);
+        const dg2 = Math.abs(g - img.bitmap.data[downIdx + 1]);
+        const db2 = Math.abs(b - img.bitmap.data[downIdx + 2]);
+
+        if (
+          dr > threshold ||
+          dg > threshold ||
+          db > threshold ||
+          dr2 > threshold ||
+          dg2 > threshold ||
+          db2 > threshold
+        ) {
           if (x < minX) minX = x;
           if (x > maxX) maxX = x;
           if (y < minY) minY = y;
@@ -2825,19 +3781,28 @@ const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
       const margin = 10;
       const cropX = Math.max(0, minX - margin);
       const cropY = Math.max(0, minY - margin);
-      const cropW = Math.min(w - cropX, (maxX - minX) + 2 * margin);
-      const cropH = Math.min(h - cropY, (maxY - minY) + 2 * margin);
-      
-      if (cropW > w * 0.2 && cropH > h * 0.2) { // Ensure we don't crop too aggressively
+      const cropW = Math.min(w - cropX, maxX - minX + 2 * margin);
+      const cropH = Math.min(h - cropY, maxY - minY + 2 * margin);
+
+      if (cropW > w * 0.2 && cropH > h * 0.2) {
+        // Ensure we don't crop too aggressively
         return img.clone().crop(cropX, cropY, cropW, cropH);
       }
     }
-    
+
     return img;
   }
 
-  private getAverageColorInRegion(img: any, x: number, y: number, w: number, h: number): { r: number; g: number; b: number } {
-    let r = 0, g = 0, b = 0;
+  private getAverageColorInRegion(
+    img: any,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ): { r: number; g: number; b: number } {
+    let r = 0,
+      g = 0,
+      b = 0;
     let count = 0;
 
     for (let py = y; py < y + h; py++) {
@@ -2856,5 +3821,598 @@ const frontUrl = process.env.FRONTEND_URL?.replace(/\/+$/, '');
       g: Math.round(g / (count || 1)),
       b: Math.round(b / (count || 1)),
     };
+  }
+
+  private async generateUniqueBarcode(tx: any): Promise<string> {
+    let attempts = 0;
+    while (attempts < 100) {
+      attempts++;
+      const num = Math.floor(10000000 + Math.random() * 90000000);
+      const barcodeStr = String(num);
+      const existing = await tx.carpet.findUnique({
+        where: { barcode: barcodeStr },
+      });
+      if (!existing) {
+        return barcodeStr;
+      }
+    }
+    throw new BadRequestException(
+      'Barcode generatsiya qilish urinishlari soni oshib ketdi (100 marta).',
+    );
+  }
+
+  private async generateUniqueSku(
+    tx: any,
+    designCode: string,
+    widthCm: number,
+    lengthCm: number,
+  ): Promise<string> {
+    const cleanDesign = (designCode || 'UNKNOWN')
+      .trim()
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase();
+    let counter = 1;
+    let attempts = 0;
+    while (attempts < 100) {
+      attempts++;
+      const paddedCounter = String(counter).padStart(4, '0');
+      const skuStr = `RET-${cleanDesign}-${widthCm}-${lengthCm}-${paddedCounter}`;
+      const existing = await tx.carpet.findUnique({
+        where: { sku: skuStr },
+      });
+      if (!existing) {
+        return skuStr;
+      }
+      counter++;
+    }
+    throw new BadRequestException(
+      'SKU generatsiya qilish urinishlari soni oshib ketdi.',
+    );
+  }
+
+  // New Search & Filter Helper Methods
+  private async handleCategoriesMenu(ctx: Context) {
+    const categories = await this.prisma.category.findMany({
+      where: {
+        carpets: {
+          some: {
+            inventoryItems: {
+              some: { inventoryStatus: CarpetInventoryStatus.ACTIVE },
+            },
+          },
+        },
+      },
+      select: { id: true, name: true },
+      take: 20,
+    });
+
+    if (categories.length === 0) {
+      await ctx.reply('Hozircha kategoriyalar mavjud emas.');
+      return;
+    }
+
+    const inlineKeyboard = categories.map((cat) => [
+      {
+        text: cat.name,
+        callback_data: `filter_category_set_${cat.id}`,
+      },
+    ]);
+
+    await ctx.reply('📂 Kategoriyani tanlang:', {
+      reply_markup: {
+        inline_keyboard: inlineKeyboard,
+      },
+    });
+  }
+
+  private async handleSizesMenu(ctx: Context) {
+    const sizes = ['2x3', '3x4', '2.5x3.5', '1.5x2.3', '4x5', '1x2'];
+    const inline_keyboard: any[][] = [];
+    for (let i = 0; i < sizes.length; i += 2) {
+      const row: any[] = [];
+      row.push({
+        text: sizes[i],
+        callback_data: `filter_size_set_${sizes[i]}`,
+      });
+      if (sizes[i + 1]) {
+        row.push({
+          text: sizes[i + 1],
+          callback_data: `filter_size_set_${sizes[i + 1]}`,
+        });
+      }
+      inline_keyboard.push(row);
+    }
+
+    await ctx.reply("📏 O'lchamni tanlang:", {
+      reply_markup: {
+        inline_keyboard,
+      },
+    });
+  }
+
+  private async handlePremiumSearch(ctx: Context) {
+    const chatId = ctx.chat!.id.toString();
+    const state = {
+      query: '',
+      onlyAvailable: true,
+      minPrice: 400000,
+      page: 1,
+    };
+    this.userSearchState.set(chatId, state);
+    await this.renderSearchResults(ctx, state);
+  }
+
+  private async handleFavoritesMenu(ctx: Context) {
+    const chatId = ctx.chat!.id.toString();
+    const user = await this.prisma.user.findFirst({
+      where: { telegramChatId: chatId },
+    });
+
+    if (!user) {
+      await ctx.reply(
+        "Siz hali ro'yxatdan o'tmagansiz. Iltimos, /start bosing.",
+      );
+      return;
+    }
+
+    const likes = await this.prisma.carpetLike.findMany({
+      where: { userId: user.id },
+      include: {
+        carpet: {
+          include: {
+            category: true,
+            inventoryItems: {
+              where: { inventoryStatus: CarpetInventoryStatus.ACTIVE },
+            },
+            rollInventories: true,
+          },
+        },
+      },
+    });
+
+    if (likes.length === 0) {
+      await ctx.reply("❤️ Sevimli gilamlaringiz ro'yxati bo'sh.");
+      return;
+    }
+
+    await ctx.reply(`❤️ Sevimli gilamlaringiz (${likes.length} ta):`);
+    for (const like of likes.slice(0, 5)) {
+      const carpet = like.carpet;
+      let stockCount = 0;
+      let sizesList = '';
+      if (carpet.type === 'ROLL') {
+        const rolls = await this.prisma.rollInventory.findMany({
+          where: { carpetId: carpet.id },
+          select: { widthCm: true, currentLengthCm: true },
+        });
+        sizesList =
+          rolls
+            .map((r) => `${r.widthCm / 100} x ${r.currentLengthCm / 100} m`)
+            .join(', ') || "Noma'lum";
+        stockCount = rolls.reduce(
+          (sum, r) => sum + (r.currentLengthCm > 0 ? 1 : 0),
+          0,
+        );
+      } else {
+        sizesList =
+          carpet.inventoryItems
+            .map(
+              (i) =>
+                `${Math.round(i.widthMm / 10) / 100} x ${Math.round(i.lengthMm / 10) / 100} m`,
+            )
+            .join(', ') || "Noma'lum";
+        stockCount = carpet.inventoryItems.length;
+      }
+
+      const msg =
+        `✨ <b>${carpet.name}</b> ✨\n\n` +
+        `📂 <b>Kategoriya:</b> ${carpet.category?.name || "Noma'lum"}\n` +
+        `💰 <b>Narxi:</b> ${Number(carpet.price).toLocaleString()} so'm / m²\n` +
+        `📍 <b>O'lchamlari:</b> ${sizesList}\n` +
+        `📦 <b>Zaxirada:</b> ${stockCount} dona\n\n` +
+        `🔗 <a href="https://yecmarket.uz/carpets/${carpet.id}">Veb-saytda ko'rish</a>`;
+
+      const inlineKeyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '🛒 Sotib olish',
+              url: `https://yecmarket.uz/carpets/${carpet.id}`,
+            },
+            { text: "❌ O'chirish", callback_data: `like_toggle_${carpet.id}` },
+          ],
+        ],
+      };
+
+      const image = carpet.images?.[0]?.trim() || '';
+      const photoInput = this.resolveCarpetPhoto(image);
+      if (photoInput) {
+        await this.telegramService.sendPhoto(
+          chatId,
+          photoInput,
+          msg,
+          inlineKeyboard,
+        );
+      } else {
+        await ctx.reply(msg, {
+          parse_mode: 'HTML',
+          reply_markup: inlineKeyboard,
+        });
+      }
+    }
+  }
+
+  private async handleSettingsMenu(ctx: Context) {
+    const chatId = ctx.chat!.id.toString();
+    const user = await this.prisma.user.findFirst({
+      where: { telegramChatId: chatId },
+    });
+
+    const name = user ? user.name : ctx.from?.first_name || 'Foydalanuvchi';
+    const phone = user ? user.phone : "Bog'lanmagan";
+
+    const msg =
+      `⚙ <b>Sozlamalar va ma'lumotlar</b>\n\n` +
+      `👤 <b>Ism:</b> ${name}\n` +
+      `📞 <b>Telefon:</b> ${phone}\n` +
+      `🤖 <b>Bot statusi:</b> Faol\n\n` +
+      `Quyidagi tugmalar orqali profilingiz va buyurtmalaringizni boshqarishingiz mumkin:`;
+
+    const inline_keyboard = [
+      [
+        { text: '📦 Mening buyurtmalarim', callback_data: 'settings_orders' },
+        { text: '🏢 Filiallar', callback_data: 'settings_branches' },
+      ],
+      [{ text: '🌐 YEC Market sayti', url: 'https://yecmarket.uz' }],
+    ];
+
+    await ctx.reply(msg, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard,
+      },
+    });
+  }
+
+  private async renderSearchResults(
+    ctx: Context,
+    state: {
+      query: string;
+      categoryId?: string;
+      shape?: string;
+      size?: string;
+      minPrice?: number;
+      maxPrice?: number;
+      material?: string;
+      onlyAvailable?: boolean;
+      onlyPromo?: boolean;
+      onlyNew?: boolean;
+      page: number;
+    },
+  ) {
+    const chatId = ctx.chat!.id.toString();
+    const searchOptions = {
+      categoryId: state.categoryId,
+      shape: state.shape,
+      size: state.size,
+      minPrice: state.minPrice,
+      maxPrice: state.maxPrice,
+      material: state.material,
+      onlyAvailable: state.onlyAvailable,
+      onlyPromo: state.onlyPromo,
+      onlyNew: state.onlyNew,
+      page: state.page,
+      limit: 5,
+    };
+
+    const { results, totalCount } = await this.searchService.search(
+      state.query,
+      searchOptions,
+    );
+
+    if (results.length === 0) {
+      const msg = `🔍 "<b>${state.query || 'Filtrlar'}</b>" bo'yicha hech qanday gilam topilmadi.`;
+      const hasFilters =
+        state.categoryId ||
+        state.shape ||
+        state.size ||
+        state.minPrice ||
+        state.maxPrice ||
+        state.material ||
+        state.onlyPromo ||
+        state.onlyNew;
+      const inline_keyboard = hasFilters
+        ? [[{ text: '❌ Filtrlarni tozalash', callback_data: 'filter_clear' }]]
+        : [];
+
+      await ctx.reply(msg, {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard },
+      });
+      return;
+    }
+
+    for (const carpet of results) {
+      const stockCount = carpet.sizes.reduce((sum, s) => sum + s.stock, 0);
+      const sizesList =
+        carpet.sizes
+          .map((s) => `${s.widthCm / 100} x ${s.lengthCm / 100} m`)
+          .join(', ') || "Noma'lum";
+
+      let priceText = `${carpet.price.toLocaleString()} so'm / m²`;
+      if (carpet.discountPercent > 0) {
+        const discountedPrice = Math.round(
+          carpet.price * (1 - carpet.discountPercent / 100),
+        );
+        priceText = `<s>${carpet.price.toLocaleString()}</s> <b>${discountedPrice.toLocaleString()}</b> so'm / m² (-${carpet.discountPercent}%)`;
+      }
+
+      let textMsg =
+        `✨ <b>${carpet.name}</b> ✨\n\n` +
+        `📂 <b>Kategoriya:</b> ${carpet.categoryName || "Noma'lum"}\n` +
+        `🔢 <b>Gul kodi:</b> ${carpet.designCode || carpet.uniqueCode}\n` +
+        `💰 <b>Narxi:</b> ${priceText}\n` +
+        `🧵 <b>Material:</b> ${carpet.material || "Noma'lum"}\n` +
+        `📍 <b>O\'lchamlar:</b> ${sizesList}\n` +
+        `📦 <b>Status:</b> ${stockCount > 0 ? '✅ Sotuvda bor' : '❌ Tugagan'}\n`;
+
+      if (carpet.description) {
+        textMsg += `📝 <b>Tavsif:</b> ${carpet.description}\n`;
+      }
+
+      const user = await this.prisma.user.findFirst({
+        where: { telegramChatId: chatId },
+      });
+      let isLiked = false;
+      if (user) {
+        const like = await this.prisma.carpetLike.findUnique({
+          where: { userId_carpetId: { userId: user.id, carpetId: carpet.id } },
+        });
+        isLiked = !!like;
+      }
+
+      const inlineKeyboard = {
+        inline_keyboard: [
+          [
+            {
+              text: '🛒 Sotib olish',
+              url: `https://yecmarket.uz/carpets/${carpet.id}`,
+            },
+            {
+              text: isLiked ? '❤️ Saqlangan' : '🖤 Saqlash',
+              callback_data: `like_toggle_${carpet.id}`,
+            },
+          ],
+          [
+            {
+              text: '📤 Ulashish',
+              url: `https://t.me/share/url?url=https://yecmarket.uz/carpets/${carpet.id}&text=${encodeURIComponent('YEC Marketda ajoyib gilam topdim: ' + carpet.name)}`,
+            },
+            {
+              text: "🔍 O'xshashlar",
+              callback_data: `similar_search_${carpet.id}`,
+            },
+          ],
+          [{ text: '📞 Operator', url: 'https://t.me/Saloxiddin_977' }],
+        ],
+      };
+
+      const image = carpet.images?.[0]?.trim() || '';
+      const photoInput = this.resolveCarpetPhoto(image);
+      if (photoInput) {
+        await this.telegramService.sendPhoto(
+          chatId,
+          photoInput,
+          textMsg,
+          inlineKeyboard,
+        );
+      } else {
+        await ctx.reply(textMsg, {
+          parse_mode: 'HTML',
+          reply_markup: inlineKeyboard,
+        });
+      }
+    }
+
+    const totalPages = Math.ceil(totalCount / 5);
+    let controlText = `🔍 <b>Natijalar:</b> ${totalCount} ta gilam topildi.\nSahifa: <b>${state.page}/${totalPages}</b>`;
+
+    const activeFilters: string[] = [];
+    if (state.categoryId) activeFilters.push('Kategoriya');
+    if (state.size) activeFilters.push(`O'lcham (${state.size})`);
+    if (state.shape) activeFilters.push(`Shakl (${state.shape})`);
+    if (state.material) activeFilters.push(`Material (${state.material})`);
+    if (state.minPrice || state.maxPrice) activeFilters.push('Narx');
+    if (state.onlyPromo) activeFilters.push('Aksiya');
+    if (state.onlyNew) activeFilters.push('Yangi');
+    if (activeFilters.length > 0) {
+      controlText += `\n⚠️ Faol filtrlar: <i>${activeFilters.join(', ')}</i>`;
+    }
+
+    const inline_keyboard: any[] = [];
+    const pagerRow: any[] = [];
+    if (state.page > 1) {
+      pagerRow.push({ text: '◀ Oldingi', callback_data: 'search_page_prev' });
+    }
+    if (state.page < totalPages) {
+      pagerRow.push({ text: 'Keyingi ▶', callback_data: 'search_page_next' });
+    }
+    if (pagerRow.length > 0) {
+      inline_keyboard.push(pagerRow);
+    }
+
+    inline_keyboard.push([
+      { text: '🎨 Rang', callback_data: 'filter_menu_color' },
+      { text: "📏 O'lcham", callback_data: 'filter_menu_size' },
+      { text: '🔄 Shakl', callback_data: 'filter_menu_shape' },
+    ]);
+    inline_keyboard.push([
+      { text: '🧵 Material', callback_data: 'filter_menu_material' },
+      { text: '💰 Narx', callback_data: 'filter_menu_price' },
+      { text: '🏷️ Status', callback_data: 'filter_menu_status' },
+    ]);
+    inline_keyboard.push([
+      { text: '❌ Filtrlarni tozalash', callback_data: 'filter_clear' },
+    ]);
+
+    await ctx.reply(controlText, {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard },
+    });
+  }
+
+  private async handleLikeToggle(ctx: Context, carpetId: string) {
+    const chatId = ctx.chat!.id.toString();
+    const user = await this.prisma.user.findFirst({
+      where: { telegramChatId: chatId },
+    });
+
+    if (!user) {
+      await ctx.reply(
+        "Siz hali ro'yxatdan o'tmagansiz. Iltimos, /start bosing.",
+      );
+      return;
+    }
+
+    const like = await this.prisma.carpetLike.findUnique({
+      where: { userId_carpetId: { userId: user.id, carpetId } },
+    });
+
+    if (like) {
+      await this.prisma.carpetLike.delete({
+        where: { id: like.id },
+      });
+      await ctx.reply("❌ Gilam sevimlilar ro'yxatidan o'chirildi.");
+    } else {
+      await this.prisma.carpetLike.create({
+        data: { userId: user.id, carpetId },
+      });
+      await ctx.reply("❤️ Gilam sevimlilar ro'yxatiga qo'shildi!");
+    }
+  }
+
+  private async handleSimilarSearch(ctx: Context, carpetId: string) {
+    const carpet = await this.prisma.carpet.findUnique({
+      where: { id: carpetId },
+      include: { category: true },
+    });
+
+    if (!carpet) {
+      await ctx.reply('Gilam topilmadi.');
+      return;
+    }
+
+    const categoryName = carpet.category?.name || '';
+    const chatId = ctx.chat!.id.toString();
+
+    const state = {
+      query: categoryName,
+      page: 1,
+    };
+    this.userSearchState.set(chatId, state);
+    await ctx.reply(
+      `🔍 <b>${carpet.name}</b> uchun o'xshash gilamlar qidirilmoqda...`,
+      { parse_mode: 'HTML' },
+    );
+    await this.renderSearchResults(ctx, state);
+  }
+
+  private async handleFilterMenu(ctx: Context, type: string) {
+    const inline_keyboard: any[][] = [];
+    if (type === 'color') {
+      const colors = [
+        'oq',
+        'beige',
+        'cream',
+        "ko'k",
+        'yashil',
+        'qizil',
+        'qora',
+        'kulrang',
+      ];
+      for (let i = 0; i < colors.length; i += 2) {
+        inline_keyboard.push([
+          { text: colors[i], callback_data: `filter_color_set_${colors[i]}` },
+          {
+            text: colors[i + 1],
+            callback_data: `filter_color_set_${colors[i + 1]}`,
+          },
+        ]);
+      }
+    } else if (type === 'size') {
+      const sizes = ['2x3', '3x4', '2.5x3.5', '1.5x2.3', '4x5', '1x2'];
+      for (let i = 0; i < sizes.length; i += 2) {
+        inline_keyboard.push([
+          { text: sizes[i], callback_data: `filter_size_set_${sizes[i]}` },
+          {
+            text: sizes[i + 1],
+            callback_data: `filter_size_set_${sizes[i + 1]}`,
+          },
+        ]);
+      }
+    } else if (type === 'shape') {
+      inline_keyboard.push([
+        {
+          text: "Rectangle (To'rtburchak)",
+          callback_data: 'filter_shape_set_RECTANGLE',
+        },
+      ]);
+      inline_keyboard.push([
+        { text: 'Oval', callback_data: 'filter_shape_set_OVAL' },
+      ]);
+      inline_keyboard.push([
+        { text: 'Circle (Dumaloq)', callback_data: 'filter_shape_set_CIRCLE' },
+      ]);
+    } else if (type === 'material') {
+      const materials = ['Bambuk', 'Paxta', 'Sintetika', 'Ipak', 'Jun'];
+      for (let i = 0; i < materials.length; i += 2) {
+        const row = [
+          {
+            text: materials[i],
+            callback_data: `filter_material_set_${materials[i]}`,
+          },
+        ];
+        if (materials[i + 1]) {
+          row.push({
+            text: materials[i + 1],
+            callback_data: `filter_material_set_${materials[i + 1]}`,
+          });
+        }
+        inline_keyboard.push(row);
+      }
+    } else if (type === 'price') {
+      inline_keyboard.push([
+        { text: 'Arzon (< 300k)', callback_data: 'filter_price_set_low' },
+      ]);
+      inline_keyboard.push([
+        {
+          text: "O'rtacha (300k - 600k)",
+          callback_data: 'filter_price_set_mid',
+        },
+      ]);
+      inline_keyboard.push([
+        { text: 'Qimmat (> 600k)', callback_data: 'filter_price_set_high' },
+      ]);
+    } else if (type === 'status') {
+      inline_keyboard.push([
+        {
+          text: 'Mavjud (Sotuvda bor)',
+          callback_data: 'filter_status_set_available',
+        },
+      ]);
+      inline_keyboard.push([
+        {
+          text: 'Aksiyadagilar (Chegirma)',
+          callback_data: 'filter_status_set_promo',
+        },
+      ]);
+      inline_keyboard.push([
+        { text: 'Yangi kelganlar', callback_data: 'filter_status_set_new' },
+      ]);
+    }
+
+    await ctx.reply(`Select option for filter [${type}]:`, {
+      reply_markup: { inline_keyboard },
+    });
   }
 }

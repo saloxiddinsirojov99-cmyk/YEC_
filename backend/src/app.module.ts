@@ -17,12 +17,17 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { PromoCodesModule } from './promo-codes/promo-codes.module';
+import { InventoryModule } from './inventory/inventory.module';
+import { DeliveryModule } from './delivery/delivery.module';
+import { CacheModule } from './cache/cache.module';
 import { resolveUploadsDir } from './common/utils/uploads-path';
+import { HealthController } from './health/health.controller';
+import { AiModule } from './ai/ai.module';
 
 const uploadsDir = resolveUploadsDir();
 
 @Module({
-  controllers: [AppController],
+  controllers: [AppController, HealthController],
   imports: [
     ScheduleModule.forRoot(),
     ConfigModule.forRoot({
@@ -48,6 +53,10 @@ const uploadsDir = resolveUploadsDir();
     TelegramModule,
     NotificationsModule,
     PromoCodesModule,
+    InventoryModule,
+    DeliveryModule,
+    CacheModule,
+    AiModule,
   ],
   providers: [
     {

@@ -29,4 +29,19 @@ export class UpdateOrderStatusDto {
   @IsOptional()
   @IsString()
   courierId?: string;
+
+  @ApiPropertyOptional({ example: 'SIGNATURE' })
+  @IsOptional()
+  @IsString()
+  courierProofType?: string;
+
+  @ApiPropertyOptional({ example: 'OTP_1234' })
+  @IsOptional()
+  @IsString()
+  courierProofData?: string;
+
+  @ApiPropertyOptional({ example: 'base64-drawing-data' })
+  @IsOptional()
+  @IsString()
+  courierProofSignature?: string;
 }

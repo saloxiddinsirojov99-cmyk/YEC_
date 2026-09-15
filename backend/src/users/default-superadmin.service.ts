@@ -21,26 +21,36 @@ export class DefaultSuperAdminService implements OnModuleInit {
     const hashedPassword = await bcrypt.hash(rawPassword, 10);
 
     try {
-      await this.prisma.user.upsert({
-        where: { email },
-        create: {
-          name: fullName,
-          email,
-          phone,
-          password: hashedPassword,
-          role: UserRole.SUPERADMIN,
-        },
-        update: {
-          name: fullName,
-          phone,
-          password: hashedPassword,
-          role: UserRole.SUPERADMIN,
+      const existingUser = await this.prisma.user.findFirst({
+        where: {
+          OR: [{ email }, { phone }, { phone: { contains: '976111330' } }],
         },
       });
 
-      this.logger.log(
-        'Default superadmin tayyor: saloxiddinsirojov99@gmail.com',
-      );
+      if (existingUser) {
+        await this.prisma.user.update({
+          where: { id: existingUser.id },
+          data: {
+            name: fullName,
+            email,
+            phone,
+            password: hashedPassword,
+            role: UserRole.SUPERADMIN,
+          },
+        });
+        this.logger.log(`Default superadmin tayyor: ${phone} (${email})`);
+      } else {
+        await this.prisma.user.create({
+          data: {
+            name: fullName,
+            email,
+            phone,
+            password: hashedPassword,
+            role: UserRole.SUPERADMIN,
+          },
+        });
+        this.logger.log(`Default superadmin yaratildi: ${phone} (${email})`);
+      }
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&

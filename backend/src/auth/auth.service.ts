@@ -3,13 +3,16 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { OtpPurpose, UserRole } from '@prisma/client';
+import axios from 'axios';
 import * as bcrypt from 'bcrypt';
-import { randomBytes } from 'crypto';
+import { createHmac, randomBytes } from 'crypto';
 import { MailService } from '../mail/mail.service';
 import * as compression from 'compression';
 import { PrismaService } from '../prisma/prisma.service';
@@ -24,6 +27,8 @@ import { GoogleProfile } from './strategies/google.strategy';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
@@ -37,6 +42,13 @@ export class AuthService {
     if (existingUser) {
       throw new BadRequestException(
         "Bu email bilan foydalanuvchi allaqachon ro'yxatdan o'tgan.",
+      );
+    }
+
+    const existingByPhone = await this.usersService.findByPhone(dto.phone);
+    if (existingByPhone && existingByPhone.registrationType === 'ONLINE') {
+      throw new BadRequestException(
+        "Bu telefon raqami bilan foydalanuvchi allaqachon ro'yxatdan o'tgan.",
       );
     }
 
@@ -87,7 +99,11 @@ export class AuthService {
     }
   }
 
-  async verifyRegisterOtp(dto: VerifyRegisterOtpDto) {
+  async verifyRegisterOtp(
+    dto: VerifyRegisterOtpDto,
+    ip = 'unknown',
+    userAgent = 'unknown',
+  ) {
     const otpRecord = await this.prisma.otpCode.findFirst({
       where: {
         email: dto.email,
@@ -134,14 +150,19 @@ export class AuthService {
       data: { usedAt: new Date() },
     });
 
-    const tokens = await this.generateTokens(createdUser);
+    const deviceId = randomBytes(16).toString('hex');
+    const tokens = await this.generateTokens(createdUser, deviceId);
+
+    this.logger.log(
+      `Audit: Successful registration and login for User: ${createdUser.id}, Device: ${deviceId}, IP: ${ip}, UA: ${userAgent}`,
+    );
 
     return {
       message: "Ro'yxatdan o'tish muvaffaqiyatli yakunlandi.",
       user: {
         id: createdUser.id,
         name: createdUser.name,
-        email: createdUser.email,
+        email: createdUser.email!,
         phone: createdUser.phone,
         role: createdUser.role,
       },
@@ -149,7 +170,11 @@ export class AuthService {
     };
   }
 
-  async login(dto: LoginDto): Promise<{
+  async login(
+    dto: LoginDto,
+    ip = 'unknown',
+    userAgent = 'unknown',
+  ): Promise<{
     accessToken: string;
     refreshToken: string;
     user: {
@@ -163,39 +188,49 @@ export class AuthService {
     const user = await this.usersService.findByCredential(dto.email);
 
     if (!user) {
+      this.logger.warn(
+        `Audit Warning: Failed login attempt for credential: ${dto.email}, IP: ${ip}, UA: ${userAgent}`,
+      );
       throw new UnauthorizedException("Ma'lumotlar noto'g'ri.");
     }
-
+    if (!user.password) {
+      throw new UnauthorizedException(
+        "Parol o'rnatilmagan yoki ma'lumotlar noto'g'ri.",
+      );
+    }
     const isMatch = await bcrypt.compare(dto.password, user.password);
     if (!isMatch) {
+      this.logger.warn(
+        `Audit Warning: Incorrect password login attempt for User: ${user.id}, IP: ${ip}, UA: ${userAgent}`,
+      );
       throw new UnauthorizedException("Parol noto'g'ri.");
     }
 
-    const accessToken = await this.signAccessToken(
-      user.id,
-      user.email,
-      user.role,
-    );
-    const refreshToken = await this.signRefreshToken(
-      user.id,
-      user.email,
-      user.role,
+    const deviceId = randomBytes(16).toString('hex');
+    const tokens = await this.generateTokens(user, deviceId);
+
+    this.logger.log(
+      `Audit: Successful login for User: ${user.id}, Device: ${deviceId}, IP: ${ip}, UA: ${userAgent}`,
     );
 
     return {
-      accessToken,
-      refreshToken,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
       user: {
         id: user.id,
         name: user.name,
-        email: user.email,
+        email: user.email!,
         phone: user.phone,
         role: user.role,
       },
     };
   }
 
-  async loginWithGoogle(profile: GoogleProfile): Promise<{
+  async loginWithGoogle(
+    profile: GoogleProfile,
+    ip = 'unknown',
+    userAgent = 'unknown',
+  ): Promise<{
     accessToken: string;
     refreshToken: string;
     user: {
@@ -214,24 +249,20 @@ export class AuthService {
       );
     const user = await this.findOrCreateGoogleUser(profile, phoneFromGoogle);
 
-    const accessToken = await this.signAccessToken(
-      user.id,
-      user.email,
-      user.role,
-    );
-    const refreshToken = await this.signRefreshToken(
-      user.id,
-      user.email,
-      user.role,
+    const deviceId = randomBytes(16).toString('hex');
+    const tokens = await this.generateTokens(user, deviceId);
+
+    this.logger.log(
+      `Audit: Successful Google login for User: ${user.id}, Device: ${deviceId}, IP: ${ip}, UA: ${userAgent}`,
     );
 
     return {
-      accessToken,
-      refreshToken,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
       user: {
         id: user.id,
         name: user.name,
-        email: user.email,
+        email: user.email!,
         phone: user.phone,
         role: user.role,
         avatar: user.avatar,
@@ -239,9 +270,142 @@ export class AuthService {
     };
   }
 
+  getAllowedGoogleClientIds(): string[] {
+    const rawIds = [
+      this.configService.get<string>('GOOGLE_CLIENT_ID'),
+      this.configService.get<string>('GOOGLE_MOBILE_CLIENT_ID'),
+      this.configService.get<string>('GOOGLE_IOS_CLIENT_ID'),
+      this.configService.get<string>('GOOGLE_ANDROID_CLIENT_ID'),
+    ];
+
+    const result: string[] = [];
+    for (const raw of rawIds) {
+      if (raw && typeof raw === 'string') {
+        const parts = raw
+          .split(',')
+          .map((id) => id.trim())
+          .filter(Boolean);
+        result.push(...parts);
+      }
+    }
+
+    return Array.from(new Set(result));
+  }
+
+  async loginWithGoogleMobile(
+    idToken: string,
+    ip = 'unknown',
+    userAgent = 'unknown',
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    user: {
+      id: string;
+      name: string;
+      email: string;
+      phone: string;
+      role: string;
+      avatar?: string | null;
+    };
+  }> {
+    const allowedClientIds = this.getAllowedGoogleClientIds();
+    if (allowedClientIds.length === 0) {
+      this.logger.warn(
+        'Google mobile login attempted but no valid Google Client ID is configured.',
+      );
+      throw new ServiceUnavailableException(
+        'Google orqali kirish xizmati sozlanmagan (Google Client ID topilmadi).',
+      );
+    }
+
+    let tokenInfo: any;
+    try {
+      const response = await axios.get(
+        'https://oauth2.googleapis.com/tokeninfo',
+        {
+          params: { id_token: idToken },
+          timeout: 5000,
+          headers: { Accept: 'application/json' },
+        },
+      );
+      tokenInfo = response.data;
+    } catch (error: any) {
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        this.logger.warn(`Google tokeninfo request timed out from IP: ${ip}`);
+        throw new ServiceUnavailableException(
+          "Google autentifikatsiya xizmatiga ulanib bo'lmadi (timeout). Iltimos, birozdan so'ng qayta urinib ko'ring.",
+        );
+      }
+      if (error.response?.status === 400 || error.response?.status === 401) {
+        throw new UnauthorizedException(
+          "Google ID token noto'g'ri yoki muddati tugagan.",
+        );
+      }
+      this.logger.warn(
+        `Google tokeninfo request failed from IP: ${ip}. Status: ${error.response?.status}`,
+      );
+      throw new ServiceUnavailableException(
+        'Google autentifikatsiya xizmatida vaqtincha xatolik yuz berdi.',
+      );
+    }
+
+    if (!tokenInfo || typeof tokenInfo !== 'object') {
+      throw new UnauthorizedException("Google ID token noto'g'ri.");
+    }
+
+    // 1. Validate issuer
+    const validIssuers = ['accounts.google.com', 'https://accounts.google.com'];
+    if (!validIssuers.includes(tokenInfo.iss)) {
+      throw new UnauthorizedException("Google token issuer (iss) noto'g'ri.");
+    }
+
+    // 2. Validate expiration
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const exp = Number(tokenInfo.exp);
+    if (!exp || exp < nowSeconds) {
+      throw new UnauthorizedException('Google ID token muddati tugagan.');
+    }
+
+    // 3. Validate audience
+    if (!tokenInfo.aud || !allowedClientIds.includes(tokenInfo.aud)) {
+      throw new UnauthorizedException(
+        'Google token audience (aud) tizimga mos kelmaydi.',
+      );
+    }
+
+    // 4. Validate email and email verification
+    const email = tokenInfo.email?.trim().toLowerCase();
+    const isEmailVerified =
+      tokenInfo.email_verified === true || tokenInfo.email_verified === 'true';
+
+    if (!email || !isEmailVerified) {
+      throw new UnauthorizedException(
+        'Google akkauntida email tasdiqlanmagan yoki mavjud emas.',
+      );
+    }
+
+    // 5. Subject (Google unique user ID)
+    const googleId = tokenInfo.sub;
+    if (!googleId) {
+      throw new UnauthorizedException('Google akkaunt ID (sub) topilmadi.');
+    }
+
+    // Safely map verified profile
+    const profile: GoogleProfile = {
+      email,
+      name: tokenInfo.name?.trim() || email.split('@')[0],
+      avatar: tokenInfo.picture?.trim() || undefined,
+      googleId,
+    };
+
+    return this.loginWithGoogle(profile, ip, userAgent);
+  }
+
   async refreshAccessToken(
     refreshToken: string,
-  ): Promise<{ accessToken: string }> {
+    ip = 'unknown',
+    userAgent = 'unknown',
+  ): Promise<{ accessToken: string; refreshToken: string }> {
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token topilmadi.');
     }
@@ -253,20 +417,108 @@ export class AuthService {
         secret: refreshSecret,
       });
     } catch {
+      this.logger.warn(
+        `Audit Warning: Invalid refresh token signature or expired from IP: ${ip}, UA: ${userAgent}`,
+      );
       throw new UnauthorizedException('Refresh token muddati tugagan.');
     }
 
-    if (!payload || payload.type !== 'refresh') {
+    if (!payload || !payload.jti) {
       throw new UnauthorizedException("Refresh token noto'g'ri.");
     }
 
-    const user = await this.usersService.findById(payload.sub);
+    const { sub: userId, deviceId, jti } = payload;
+
+    // Look up token in DB matching id (jti)
+    const storedToken = await this.prisma.refreshToken.findUnique({
+      where: { id: jti },
+    });
+
+    // Reuse detection
+    if (!storedToken || storedToken.revokedAt !== null) {
+      this.logger.warn(
+        `Audit Warning [REUSE DETECTION]: Refresh token reuse attempt detected! ` +
+          `User ID: ${userId}, Device ID: ${deviceId}, Token ID (jti): ${jti}, IP: ${ip}, UA: ${userAgent}, Time: ${new Date().toISOString()}`,
+      );
+      await this.revokeAllSessions(userId);
+      throw new UnauthorizedException(
+        'Sessiya bekor qilindi. Iltimos qaytadan kiring.',
+      );
+    }
+
+    // Mark old token as used and revoked
+    await this.prisma.refreshToken.update({
+      where: { id: jti },
+      data: {
+        lastUsedAt: new Date(),
+        revokedAt: new Date(),
+      },
+    });
+
+    const user = await this.usersService.findById(userId);
     const accessToken = await this.signAccessToken(
       user.id,
-      user.email,
+      user.email!,
       user.role,
     );
-    return { accessToken };
+    const newRefreshToken = await this.signRefreshToken(
+      user.id,
+      user.email!,
+      user.role,
+      deviceId,
+    );
+
+    this.logger.log(
+      `Audit: Successful token rotation for User: ${userId}, Device: ${deviceId}, IP: ${ip}, UA: ${userAgent}`,
+    );
+
+    return { accessToken, refreshToken: newRefreshToken };
+  }
+
+  async logout(refreshToken: string | undefined, allDevices = false) {
+    if (refreshToken) {
+      try {
+        const decoded = this.jwtService.decode(refreshToken);
+        if (decoded && decoded.sub) {
+          if (allDevices) {
+            await this.revokeAllSessions(decoded.sub);
+          } else {
+            await this.revokeSession(decoded.sub, decoded.deviceId);
+          }
+        }
+      } catch {
+        // silent
+      }
+    }
+  }
+
+  async revokeSession(userId: string, deviceId: string) {
+    await this.prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        deviceId,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+      },
+    });
+    this.logger.log(
+      `Audit: Session revoked for User: ${userId}, Device: ${deviceId}`,
+    );
+  }
+
+  async revokeAllSessions(userId: string) {
+    await this.prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+      },
+    });
+    this.logger.log(`Audit: All sessions revoked for User: ${userId}`);
   }
 
   async createAdmin(dto: CreateAdminDto) {
@@ -329,7 +581,10 @@ export class AuthService {
     if (profile.avatar && !existing.avatar) {
       updates.avatar = profile.avatar;
     }
-    if (phoneFromGoogle && (!existing.phone || existing.phone.trim().length === 0)) {
+    if (
+      phoneFromGoogle &&
+      (!existing.phone || existing.phone.trim().length === 0)
+    ) {
       updates.phone = phoneFromGoogle;
     }
 
@@ -342,12 +597,14 @@ export class AuthService {
       data: updates,
     });
   }
-  
+
   async requestForgotPasswordOtp(dto: RequestForgotPasswordDto) {
     const user = await this.usersService.findByEmail(dto.email);
     if (!user) {
-      // For security, don't reveal if user exists or not, but in this case we return success
-      return { message: 'Agar ushbu email bazada mavjud bo\'lsa, unga tasdiqlash kodi yuborildi.' };
+      return {
+        message:
+          "Agar ushbu email bazada mavjud bo'lsa, unga tasdiqlash kodi yuborildi.",
+      };
     }
 
     const otp = this.generateOtpCode();
@@ -379,11 +636,14 @@ export class AuthService {
     } catch (error) {
       if (process.env.NODE_ENV !== 'production') {
         return {
-          message: 'SMTP sozlanmagani uchun kod emailga yuborilmadi. Dev rejimda kod qaytarildi.',
+          message:
+            'SMTP sozlanmagani uchun kod emailga yuborilmadi. Dev rejimda kod qaytarildi.',
           devOtpCode: otp,
         };
       }
-      throw new InternalServerErrorException('Tasdiqlash kodini yuborishda xatolik yuz berdi.');
+      throw new InternalServerErrorException(
+        'Tasdiqlash kodini yuborishda xatolik yuz berdi.',
+      );
     }
   }
 
@@ -398,7 +658,9 @@ export class AuthService {
     });
 
     if (!otpRecord || otpRecord.code !== dto.otp) {
-      throw new UnauthorizedException("Tasdiqlash kodi noto'g'ri yoki muddati tugagan.");
+      throw new UnauthorizedException(
+        "Tasdiqlash kodi noto'g'ri yoki muddati tugagan.",
+      );
     }
 
     if (otpRecord.expiresAt.getTime() < Date.now()) {
@@ -421,12 +683,10 @@ export class AuthService {
       data: { usedAt: new Date() },
     });
 
-    return { message: 'Parol muvaffaqiyatli o\'zgartirildi.' };
+    return { message: "Parol muvaffaqiyatli o'zgartirildi." };
   }
 
-  private async fetchGooglePhone(
-    accessToken?: string,
-  ): Promise<string | null> {
+  private async fetchGooglePhone(accessToken?: string): Promise<string | null> {
     if (!accessToken) return null;
     const fetchFn = (globalThis as any).fetch as
       | ((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>)
@@ -455,7 +715,9 @@ export class AuthService {
 
   private normalizePhoneFromGoogle(phone?: string | null): string | null {
     if (!phone) return null;
-    const normalized = String(phone).trim().replace(/[^\d+]/g, '');
+    const normalized = String(phone)
+      .trim()
+      .replace(/[^\d+]/g, '');
     if (!normalized) return null;
     return normalized.startsWith('+') ? normalized : `+${normalized}`;
   }
@@ -483,11 +745,11 @@ export class AuthService {
   }
 
   private getAccessExpiresIn(): string {
-    return this.configService.get<string>('JWT_EXPIRES_IN', '1h');
+    return this.configService.get<string>('JWT_EXPIRES_IN', '30m');
   }
 
   private getRefreshExpiresIn(): string {
-    return this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '12h');
+    return this.configService.get<string>('JWT_REFRESH_EXPIRES_IN', '7d');
   }
 
   private getRefreshSecret(): string {
@@ -497,24 +759,74 @@ export class AuthService {
     );
   }
 
-  private async signAccessToken(id: string, email: string, role: string) {
-    return this.jwtService.signAsync(
-      { sub: id, email, role },
-      { expiresIn: this.getAccessExpiresIn() as any },
-    );
+  private hashToken(token: string): string {
+    const secret = this.getRefreshSecret();
+    return createHmac('sha256', secret).update(token).digest('hex');
   }
 
-  private async signRefreshToken(id: string, email: string, role: string) {
+  private async signAccessToken(id: string, email: string, role: string) {
+    const accessSecret = this.configService.get<string>(
+      'JWT_SECRET',
+      'super-secret-change-me',
+    );
     return this.jwtService.signAsync(
-      { sub: id, email, role, type: 'refresh' },
       {
-        secret: this.getRefreshSecret(),
-        expiresIn: this.getRefreshExpiresIn() as any,
+        sub: id,
+        email,
+        role,
+        iss: 'yec-market',
+        aud: 'yec-client',
+      },
+      {
+        secret: accessSecret,
+        expiresIn: this.getAccessExpiresIn() as any,
       },
     );
   }
 
-  private async generateTokens(user: any) {
+  private async signRefreshToken(
+    id: string,
+    email: string,
+    role: string,
+    deviceId: string,
+  ) {
+    const jti = randomBytes(16).toString('hex');
+    const refreshSecret = this.getRefreshSecret();
+    const token = await this.jwtService.signAsync(
+      {
+        sub: id,
+        email,
+        role,
+        deviceId,
+        jti,
+        iss: 'yec-market',
+        aud: 'yec-client',
+      },
+      {
+        secret: refreshSecret,
+        expiresIn: this.getRefreshExpiresIn() as any,
+      },
+    );
+
+    const decoded = this.jwtService.decode(token);
+    const expiresAt = new Date(decoded.exp * 1000);
+    const tokenHash = this.hashToken(token);
+
+    await this.prisma.refreshToken.create({
+      data: {
+        id: jti,
+        tokenHash,
+        userId: id,
+        deviceId,
+        expiresAt,
+      },
+    });
+
+    return token;
+  }
+
+  private async generateTokens(user: any, deviceId?: string) {
+    const devId = deviceId || randomBytes(16).toString('hex');
     const accessToken = await this.signAccessToken(
       user.id,
       user.email,
@@ -524,6 +836,7 @@ export class AuthService {
       user.id,
       user.email,
       user.role,
+      devId,
     );
     return { accessToken, refreshToken };
   }

@@ -12,7 +12,7 @@ import {
 export class UpdateCarpetM2PriceDto {
   @ApiProperty({ example: ['Etalon'], isArray: true })
   @IsArray()
-  @ArrayMinSize(1, { message: "Kamida bitta gilam nomini tanlang." })
+  @ArrayMinSize(1, { message: 'Kamida bitta gilam nomini tanlang.' })
   @IsString({ each: true })
   names!: string[];
 
@@ -23,6 +23,6 @@ export class UpdateCarpetM2PriceDto {
     { message: "m2 narxi noto'g'ri kiritildi." },
   )
   @Min(1, { message: "m2 narxi 1 dan kichik bo'lmasligi kerak." })
-  @Max(99999999, { message: "m2 narxi juda katta." })
+  @Max(99999999, { message: 'm2 narxi juda katta.' })
   m2Price!: number;
 }

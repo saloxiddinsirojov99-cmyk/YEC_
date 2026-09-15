@@ -13,13 +13,10 @@ export class NotificationsController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post('subscribe')
-  async subscribe(
-    @CurrentUser() user: any,
-    @Body() subscription: any,
-  ) {
+  async subscribe(@CurrentUser() user: any, @Body() subscription: any) {
     const userId = user.sub;
     const { endpoint, keys } = subscription;
-    
+
     // Check if subscription already exists
     const existing = await this.prisma.pushSubscription.findUnique({
       where: { endpoint },

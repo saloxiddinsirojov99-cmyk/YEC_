@@ -14,6 +14,8 @@ export class ResetPasswordDto {
 
   @ApiProperty({ example: 'newpassword123' })
   @IsString()
-  @MinLength(6, { message: "Parol kamida 6 ta belgidan iborat bo'lishi kerak." })
+  @MinLength(6, {
+    message: "Parol kamida 6 ta belgidan iborat bo'lishi kerak.",
+  })
   newPassword!: string;
 }

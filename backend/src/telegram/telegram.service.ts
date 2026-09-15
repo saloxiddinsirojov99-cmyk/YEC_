@@ -65,7 +65,11 @@ export class TelegramService {
     }
   }
 
-  async notifyAdmins(message: string, location?: { lat: number; lng: number }, replyMarkup?: any) {
+  async notifyAdmins(
+    message: string,
+    location?: { lat: number; lng: number },
+    replyMarkup?: any,
+  ) {
     if (!this.configService.get('TELEGRAM_BOT_TOKEN')) {
       return;
     }
