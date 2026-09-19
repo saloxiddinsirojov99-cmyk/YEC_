@@ -92,3 +92,6 @@ export async function removeRefreshToken(): Promise<void> {
 export async function clearAuthTokens(): Promise<void> {
   await Promise.all([removeAccessToken(), removeRefreshToken()]);
 }
+
+export const clearTokens = clearAuthTokens;
+
