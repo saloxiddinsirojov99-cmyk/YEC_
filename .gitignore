@@ -16,6 +16,7 @@ lerna-debug.log*
 
 # OS
 .DS_Store
+desktop.ini
 
 # Tests
 /coverage
@@ -47,6 +48,8 @@ lerna-debug.log*
 # temp directory
 .temp
 .tmp
+tmp/
+scratch/
 
 # Runtime data
 pids
