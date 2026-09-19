@@ -8,11 +8,13 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { API_URL, CLIENT_PLATFORM } from '@/constants/config';
 import { useCategories, useCarpets } from '@/hooks/useCarpetCatalog';
 import { formatPrice } from '@/utils/price';
 
 export default function InitialConnectionScreen() {
+  const router = useRouter();
   const categoriesQuery = useCategories();
   const carpetsQuery = useCarpets({ page: 1, limit: 2, kind: 'carpet' });
 
@@ -84,6 +86,17 @@ export default function InitialConnectionScreen() {
               x-client-platform: {CLIENT_PLATFORM}
             </Text>
           </View>
+
+          {/* Navigation to Full Production App */}
+          <TouchableOpacity
+            style={styles.openCatalogBtn}
+            onPress={() => router.push('/(tabs)')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.openCatalogBtnText}>
+              🛍️ To'liq YEC Market Katalogiga O'tish →
+            </Text>
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.refreshButton}
@@ -269,6 +282,24 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     fontWeight: '500',
     maxWidth: '70%',
+  },
+  openCatalogBtn: {
+    backgroundColor: '#0284c7',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginVertical: 10,
+    shadowColor: '#0284c7',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  openCatalogBtnText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 15,
   },
   refreshButton: {
     backgroundColor: '#0284c7',
