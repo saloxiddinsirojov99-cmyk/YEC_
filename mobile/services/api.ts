@@ -158,3 +158,5 @@ export function getApiErrorMessage(error: unknown): string {
   }
   return 'Kutilmagan xatolik yuz berdi.';
 }
+
+export const getErrorMessage = getApiErrorMessage;

@@ -10,11 +10,14 @@ import {
   Dimensions,
   SafeAreaView,
   Alert,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCarpetDetails } from '@/hooks/useCarpetCatalog';
 import { resolveImageUrl } from '@/utils/image';
 import { useFavoritesStore } from '@/store/favorites.store';
+import { useCartStore } from '@/store/cart.store';
 import ErrorState from '@/components/ErrorState';
 
 const { width } = Dimensions.get('window');
@@ -32,6 +35,12 @@ export default function CarpetDetailScreen() {
 
   const isFavorite = useFavoritesStore((state) => (id ? state.isFavorite(id) : false));
   const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite);
+  const addItemToCart = useCartStore((state) => state.addItem);
+
+  // Custom Metraj / Roll state
+  const [rollModalVisible, setRollModalVisible] = useState(false);
+  const [selectedWidthCm, setSelectedWidthCm] = useState<number | null>(null);
+  const [customLengthCm, setCustomLengthCm] = useState('');
 
   if (isLoading) {
     return (
@@ -281,18 +290,170 @@ export default function CarpetDetailScreen() {
           style={[styles.buyBtn, carpet.stock === 0 && styles.buyBtnDisabled]}
           disabled={carpet.stock === 0}
           onPress={() => {
-            Alert.alert(
-              'Savatchaga qo‘shildi',
-              `"${carpet.name}" mahsuloti savatchaga muvaffaqiyatli qo'shildi.`,
-            );
+            if (carpet.type === 'ROLL' && carpet.rollInventories && carpet.rollInventories.length > 0) {
+              setSelectedWidthCm(carpet.rollInventories[0].widthCm);
+              setRollModalVisible(true);
+            } else {
+              addItemToCart({
+                carpetId: carpet.id,
+                name: carpet.name,
+                price: finalPrice,
+                image: currentRawImage,
+                size: carpet.size,
+                material: carpet.material,
+                quantity: 1,
+                stock: carpet.stock,
+              });
+              Alert.alert(
+                'Savatchaga qo‘shildi',
+                `"${carpet.name}" savatchaga muvaffaqiyatli qo'shildi.`,
+                [
+                  { text: 'Xaridni davom ettirish' },
+                  { text: 'Savatchaga o‘tish', onPress: () => router.push('/(tabs)/cart') },
+                ],
+              );
+            }
           }}
           activeOpacity={0.8}
         >
           <Text style={styles.buyBtnText}>
-            {carpet.stock > 0 ? "Savatchaga qo'shish" : "Mavjud emas"}
+            {carpet.stock > 0
+              ? carpet.type === 'ROLL'
+                ? 'O‘lcham tanlash'
+                : 'Savatchaga qo‘shish'
+              : 'Mavjud emas'}
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* Roll Metraj Custom Cut Modal */}
+      <Modal
+        visible={rollModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRollModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Metraj o‘lchamini tanlang</Text>
+              <TouchableOpacity onPress={() => setRollModalVisible(false)}>
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Available Width Selector */}
+            <Text style={styles.modalLabel}>Kenglik (sm):</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.widthOptionsRow}>
+              {carpet.rollInventories?.map((inv) => (
+                <TouchableOpacity
+                  key={inv.id}
+                  style={[
+                    styles.widthOptionBtn,
+                    selectedWidthCm === inv.widthCm && styles.widthOptionBtnActive,
+                  ]}
+                  onPress={() => setSelectedWidthCm(inv.widthCm)}
+                >
+                  <Text
+                    style={[
+                      styles.widthOptionText,
+                      selectedWidthCm === inv.widthCm && styles.widthOptionTextActive,
+                    ]}
+                  >
+                    {inv.widthCm} sm
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* Length Input */}
+            <Text style={styles.modalLabel}>Uzunlik (sm):</Text>
+            <TextInput
+              style={styles.lengthInput}
+              placeholder="Masalan: 350"
+              placeholderTextColor="#94a3b8"
+              keyboardType="numeric"
+              value={customLengthCm}
+              onChangeText={setCustomLengthCm}
+            />
+
+            {/* Area and Price Calculation */}
+            {(() => {
+              const w = selectedWidthCm || 0;
+              const l = parseFloat(customLengthCm) || 0;
+              const selectedInv = carpet.rollInventories?.find((i) => i.widthCm === w);
+              const pPerM2 = selectedInv ? Number(selectedInv.pricePerM2) : 0;
+              const area = (w / 100) * (l / 100);
+              const calcPrice = Math.round(area * pPerM2);
+
+              return (
+                <View style={styles.calcBox}>
+                  <View style={styles.calcRow}>
+                    <Text style={styles.calcLabel}>Hisoblangan maydon:</Text>
+                    <Text style={styles.calcValue}>{area > 0 ? area.toFixed(2) : '0.00'} m²</Text>
+                  </View>
+                  <View style={styles.calcRow}>
+                    <Text style={styles.calcLabel}>m² narxi:</Text>
+                    <Text style={styles.calcValue}>
+                      {new Intl.NumberFormat('uz-UZ').format(pPerM2)} so‘m
+                    </Text>
+                  </View>
+                  <View style={[styles.calcRow, styles.calcTotalRow]}>
+                    <Text style={styles.calcTotalLabel}>Jami narx:</Text>
+                    <Text style={styles.calcTotalValue}>
+                      {new Intl.NumberFormat('uz-UZ').format(calcPrice)} so‘m
+                    </Text>
+                  </View>
+                </View>
+              );
+            })()}
+
+            {/* Add Roll to Cart Button */}
+            <TouchableOpacity
+              style={styles.confirmRollBtn}
+              onPress={() => {
+                const w = selectedWidthCm || 0;
+                const l = parseFloat(customLengthCm) || 0;
+                if (w <= 0 || l <= 0) {
+                  Alert.alert('Xatolik', 'Iltimos, to‘g‘ri uzunlik kiriting (kamida 1 sm).');
+                  return;
+                }
+                const selectedInv = carpet.rollInventories?.find((i) => i.widthCm === w);
+                const pPerM2 = selectedInv ? Number(selectedInv.pricePerM2) : 0;
+                const area = (w / 100) * (l / 100);
+                const calcPrice = Math.round(area * pPerM2);
+
+                addItemToCart({
+                  carpetId: carpet.id,
+                  name: carpet.name,
+                  price: calcPrice,
+                  image: currentRawImage,
+                  size: `${w}sm × ${l}sm`,
+                  material: carpet.material,
+                  quantity: 1,
+                  isRoll: true,
+                  widthCm: w,
+                  lengthCm: l,
+                  areaM2: area,
+                  pricePerM2: pPerM2,
+                });
+
+                setRollModalVisible(false);
+                Alert.alert(
+                  'Savatchaga qo‘shildi',
+                  `${carpet.name} (${w}sm × ${l}sm) savatchaga qo'shildi.`,
+                  [
+                    { text: 'Xaridni davom ettirish' },
+                    { text: 'Savatchaga o‘tish', onPress: () => router.push('/(tabs)/cart') },
+                  ],
+                );
+              }}
+            >
+              <Text style={styles.confirmRollBtnText}>Savatchaga qo‘shish</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -564,6 +725,128 @@ const styles = StyleSheet.create({
   buyBtnText: {
     color: '#ffffff',
     fontSize: 14,
+    fontWeight: '700',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: 40,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  modalCloseText: {
+    fontSize: 18,
+    color: '#64748b',
+    padding: 4,
+  },
+  modalLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  widthOptionsRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  widthOptionBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 10,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  widthOptionBtnActive: {
+    backgroundColor: '#e0f2fe',
+    borderColor: '#0284c7',
+  },
+  widthOptionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  widthOptionTextActive: {
+    color: '#0284c7',
+    fontWeight: '700',
+  },
+  lengthInput: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#0f172a',
+    marginBottom: 14,
+  },
+  calcBox: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginBottom: 16,
+  },
+  calcRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  calcLabel: {
+    fontSize: 13,
+    color: '#64748b',
+  },
+  calcValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  calcTotalRow: {
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    marginTop: 6,
+    paddingTop: 8,
+  },
+  calcTotalLabel: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  calcTotalValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0284c7',
+  },
+  confirmRollBtn: {
+    backgroundColor: '#0284c7',
+    paddingVertical: 15,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmRollBtnText: {
+    color: '#ffffff',
+    fontSize: 16,
     fontWeight: '700',
   },
 });

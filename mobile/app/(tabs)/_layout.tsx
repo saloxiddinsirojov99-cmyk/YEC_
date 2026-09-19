@@ -51,11 +51,29 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="cart"
+        options={{
+          title: 'Savatcha',
+          tabBarIcon: ({ color, focused }) => (
+            <Text style={{ fontSize: 20 }}>{focused ? '🛒' : '🛍️'}</Text>
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="favorites"
         options={{
           title: 'Sevimlilar',
           tabBarIcon: ({ color, focused }) => (
             <Text style={{ fontSize: 20 }}>{focused ? '❤️' : '🤍'}</Text>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profil',
+          tabBarIcon: ({ color, focused }) => (
+            <Text style={{ fontSize: 20 }}>{focused ? '👤' : '👥'}</Text>
           ),
         }}
       />

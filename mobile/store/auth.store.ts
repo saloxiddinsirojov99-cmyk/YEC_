@@ -1,71 +1,71 @@
 import { create } from 'zustand';
-import type { AuthUser } from '@/types/user';
+import type { AuthUser, UserProfile } from '@/types/user';
+import {
+  login as apiLogin,
+  logout as apiLogout,
+  getCurrentUserProfile,
+  updateCurrentUserProfile,
+  type LoginCredentials,
+  type UpdateProfilePayload,
+} from '@/services/auth.service';
 import { getAccessToken, clearAuthTokens } from '@/lib/secure-storage';
-import { getCurrentUserProfile, logout as apiLogout } from '@/services/auth.service';
 
 interface AuthState {
-  user: AuthUser | null;
+  user: AuthUser | UserProfile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  isInitialized: boolean;
-
-  // Actions
-  setUser: (user: AuthUser | null) => void;
-  initializeAuth: () => Promise<void>;
+  restoreSession: () => Promise<void>;
+  login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => Promise<void>;
+  updateUser: (payload: UpdateProfilePayload) => Promise<UserProfile>;
+  setUser: (user: AuthUser | UserProfile | null) => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isAuthenticated: false,
-  isLoading: false,
-  isInitialized: false,
+  isLoading: true,
 
-  setUser: (user) => {
-    set({
-      user,
-      isAuthenticated: Boolean(user),
-    });
-  },
-
-  initializeAuth: async () => {
-    set({ isLoading: true });
+  restoreSession: async () => {
     try {
+      set({ isLoading: true });
       const token = await getAccessToken();
       if (!token) {
-        set({ user: null, isAuthenticated: false, isInitialized: true, isLoading: false });
+        set({ user: null, isAuthenticated: false, isLoading: false });
         return;
       }
 
+      // Fetch active user profile from production backend
       const profile = await getCurrentUserProfile();
-      set({
-        user: profile,
-        isAuthenticated: true,
-        isInitialized: true,
-        isLoading: false,
-      });
+      set({ user: profile, isAuthenticated: true, isLoading: false });
     } catch (error) {
+      // If token is invalid/expired and refresh failed in interceptor
       await clearAuthTokens();
-      set({
-        user: null,
-        isAuthenticated: false,
-        isInitialized: true,
-        isLoading: false,
-      });
+      set({ user: null, isAuthenticated: false, isLoading: false });
     }
   },
 
+  login: async (credentials: LoginCredentials) => {
+    const res = await apiLogin(credentials);
+    set({ user: res.user, isAuthenticated: true });
+  },
+
   logout: async () => {
-    set({ isLoading: true });
     try {
       await apiLogout();
     } finally {
       await clearAuthTokens();
-      set({
-        user: null,
-        isAuthenticated: false,
-        isLoading: false,
-      });
+      set({ user: null, isAuthenticated: false });
     }
+  },
+
+  updateUser: async (payload: UpdateProfilePayload) => {
+    const updated = await updateCurrentUserProfile(payload);
+    set({ user: updated });
+    return updated;
+  },
+
+  setUser: (user) => {
+    set({ user, isAuthenticated: Boolean(user) });
   },
 }));
