@@ -5,16 +5,19 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/store/auth.store';
 import { useCartStore } from '@/store/cart.store';
+import { useFavoritesStore } from '@/store/favorites.store';
 
 export default function RootLayout() {
   const restoreSession = useAuthStore((state) => state.restoreSession);
   const loadCart = useCartStore((state) => state.loadCart);
+  const loadFavorites = useFavoritesStore((state) => state.loadFavorites);
 
   useEffect(() => {
-    // Restore persistent session and saved shopping cart on startup
+    // Restore persistent session, shopping cart, and favorites on startup
     restoreSession();
     loadCart();
-  }, [restoreSession, loadCart]);
+    loadFavorites();
+  }, [restoreSession, loadCart, loadFavorites]);
 
   const [queryClient] = useState(
     () =>

@@ -14,7 +14,7 @@ import {
   TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCarpetDetails } from '@/hooks/useCarpetCatalog';
+import { useCarpetDetails, useCarpets } from '@/hooks/useCarpetCatalog';
 import { resolveImageUrl } from '@/utils/image';
 import { useFavoritesStore } from '@/store/favorites.store';
 import { useCartStore } from '@/store/cart.store';
@@ -29,6 +29,12 @@ export default function CarpetDetailScreen() {
   const { data: carpet, isLoading, isError, error, refetch } = useCarpetDetails(
     id || '',
   );
+
+  const { data: relatedData } = useCarpets({
+    categoryId: carpet?.categoryId,
+    limit: 8,
+  });
+  const similarCarpets = (relatedData?.items || []).filter((item) => item.id !== carpet?.id);
 
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [imageError, setImageError] = useState(false);
@@ -254,6 +260,40 @@ export default function CarpetDetailScreen() {
             )}
           </View>
 
+          {/* Variants / Other sizes if available */}
+          {carpet.variants && carpet.variants.length > 0 && (
+            <View style={styles.specsCard}>
+              <Text style={styles.specsTitle}>Boshqa o‘lchamlar</Text>
+              <View style={styles.variantsRow}>
+                {carpet.variants.map((v) => {
+                  const isCurrent = v.id === carpet.id;
+                  return (
+                    <TouchableOpacity
+                      key={v.id}
+                      style={[
+                        styles.variantPill,
+                        isCurrent && styles.variantPillActive,
+                      ]}
+                      onPress={() => {
+                        if (!isCurrent) router.push(`/carpet/${v.id}`);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.variantPillText,
+                          isCurrent && styles.variantPillTextActive,
+                        ]}
+                      >
+                        {v.size}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
           {/* Roll Inventories if available */}
           {carpet.rollInventories && carpet.rollInventories.length > 0 && (
             <View style={styles.specsCard}>
@@ -274,6 +314,68 @@ export default function CarpetDetailScreen() {
             <View style={styles.specsCard}>
               <Text style={styles.specsTitle}>Tavsif</Text>
               <Text style={styles.descriptionText}>{carpet.description}</Text>
+            </View>
+          )}
+
+          {/* Similar Products */}
+          {similarCarpets.length > 0 && (
+            <View style={styles.similarSection}>
+              <Text style={styles.similarSectionTitle}>O‘xshash gilamlar</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.similarList}
+              >
+                {similarCarpets.map((item) => {
+                  const itemImg = item.images?.[0];
+                  const itemImgUrl = resolveImageUrl(itemImg);
+                  const itemPrice = Number(item.price) || 0;
+                  const itemDiscount = item.discountPercent || 0;
+                  const itemFinalPrice =
+                    itemDiscount > 0
+                      ? Math.round(itemPrice * (1 - itemDiscount / 100))
+                      : itemPrice;
+
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={styles.similarCard}
+                      onPress={() => router.push(`/carpet/${item.id}`)}
+                      activeOpacity={0.8}
+                    >
+                      <View style={styles.similarImageWrapper}>
+                        {itemImgUrl ? (
+                          <Image
+                            source={{ uri: itemImgUrl }}
+                            style={styles.similarImage}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.similarPlaceholder}>
+                            <Text style={{ fontSize: 24 }}>🧶</Text>
+                          </View>
+                        )}
+                        {itemDiscount > 0 && (
+                          <View style={styles.similarDiscountBadge}>
+                            <Text style={styles.similarDiscountText}>
+                              -{itemDiscount}%
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.similarName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.similarSize} numberOfLines={1}>
+                        {item.size} · {item.material}
+                      </Text>
+                      <Text style={styles.similarPrice}>
+                        {new Intl.NumberFormat('uz-UZ').format(itemFinalPrice)} so‘m
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
           )}
         </View>
@@ -849,4 +951,102 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
+  variantsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  variantPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+  },
+  variantPillActive: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#0284c7',
+  },
+  variantPillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  variantPillTextActive: {
+    color: '#0284c7',
+    fontWeight: '700',
+  },
+  similarSection: {
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  similarSectionTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 12,
+  },
+  similarList: {
+    gap: 12,
+    paddingRight: 16,
+  },
+  similarCard: {
+    width: 140,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  similarImageWrapper: {
+    width: '100%',
+    height: 110,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#f1f5f9',
+    marginBottom: 6,
+    position: 'relative',
+  },
+  similarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  similarPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  similarDiscountBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: '#ef4444',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  similarDiscountText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  similarName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 2,
+  },
+  similarSize: {
+    fontSize: 11,
+    color: '#64748b',
+    marginBottom: 4,
+  },
+  similarPrice: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0284c7',
+  },
 });
+

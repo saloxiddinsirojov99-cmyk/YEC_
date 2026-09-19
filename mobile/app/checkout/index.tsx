@@ -15,7 +15,12 @@ import {
 import { useRouter } from 'expo-router';
 import { useCartStore } from '@/store/cart.store';
 import { useAuthStore } from '@/store/auth.store';
-import { createOrder, type CreateOrderPayload } from '@/services/order.service';
+import {
+  createOrder,
+  previewPromoCode,
+  type CreateOrderPayload,
+  type PromoPreviewResponse,
+} from '@/services/order.service';
 import { getErrorMessage } from '@/services/api';
 import type { PaymentMethod } from '@/types/order';
 
@@ -39,6 +44,73 @@ export default function CheckoutScreen() {
   const [comment, setComment] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [loading, setLoading] = useState(false);
+
+  // Promo Code States
+  const [promoInput, setPromoInput] = useState('');
+  const [promoChecking, setPromoChecking] = useState(false);
+  const [promoPreview, setPromoPreview] = useState<PromoPreviewResponse | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoSuccess, setPromoSuccess] = useState<string | null>(null);
+
+  // Delivery and Pricing Calculations
+  const promoDiscount = promoPreview?.pricing?.promoDiscountAmount ?? 0;
+  const finalTotal =
+    promoPreview?.pricing?.totalAfterPromo != null && promoPreview.state === 'valid'
+      ? promoPreview.pricing.totalAfterPromo
+      : subtotal;
+  const isFreeDelivery = subtotal >= 5000000;
+
+  const handleApplyPromo = async () => {
+    const trimmed = promoInput.trim().toUpperCase();
+    if (!trimmed) {
+      setPromoError('Iltimos, promokodni kiriting.');
+      return;
+    }
+    if (!isAuthenticated) {
+      Alert.alert(
+        'Avtorizatsiya talab qilinadi',
+        'Promokoddan foydalanish uchun iltimos profilingizga kiring.',
+        [
+          { text: 'Bekor qilish' },
+          { text: 'Kirish', onPress: () => router.push('/auth/login') },
+        ],
+      );
+      return;
+    }
+
+    try {
+      setPromoChecking(true);
+      setPromoError(null);
+      setPromoSuccess(null);
+
+      const res = await previewPromoCode({
+        promoCode: trimmed,
+        items: items.map((i) => ({ carpetId: i.carpetId, quantity: i.quantity })),
+      });
+
+      if (res.state === 'valid') {
+        setPromoPreview(res);
+        setPromoSuccess(res.message || `"${trimmed}" promokodi muvaffaqiyatli qo‘llandi!`);
+      } else {
+        setPromoPreview(null);
+        setPromoError(res.message || 'Kiritilgan promokod yaroqsiz.');
+      }
+    } catch (err: any) {
+      setPromoPreview(null);
+      setPromoError(
+        err?.response?.data?.message || err?.message || 'Promokodni tekshirishda xatolik yuz berdi.',
+      );
+    } finally {
+      setPromoChecking(false);
+    }
+  };
+
+  const handleRemovePromo = () => {
+    setPromoInput('');
+    setPromoPreview(null);
+    setPromoError(null);
+    setPromoSuccess(null);
+  };
 
   const handleSubmitOrder = async () => {
     if (!customerName.trim()) {
@@ -78,11 +150,17 @@ export default function CheckoutScreen() {
         phone: phone.trim(),
         phone2: phone2.trim() ? phone2.trim() : undefined,
         address: address.trim(),
-        locationLat: 41.311081, // Default Tashkent coordinates if no map picker
+        locationLat: 41.311081, // Default Tashkent coordinates
         locationLng: 69.279723,
         locationText: locationText.trim() || address.trim(),
         paymentMethod: paymentMethod,
         comment: comment.trim() || undefined,
+        promoCode:
+          promoPreview?.state === 'valid' && promoPreview.promo?.code
+            ? promoPreview.promo.code
+            : promoInput.trim()
+            ? promoInput.trim().toUpperCase()
+            : undefined,
         items: items.map((item) => ({
           carpetId: item.carpetId,
           quantity: item.quantity,
@@ -246,6 +324,70 @@ export default function CheckoutScreen() {
             </View>
           </View>
 
+          {/* Section: Promo Code */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Promokod</Text>
+            {promoPreview?.state === 'valid' ? (
+              <View style={styles.promoSuccessBox}>
+                <View style={styles.promoSuccessInfo}>
+                  <Text style={styles.promoSuccessIcon}>🎟️</Text>
+                  <View style={styles.promoSuccessTextCol}>
+                    <Text style={styles.promoSuccessCode}>
+                      {promoPreview.promo?.code || promoInput}
+                    </Text>
+                    <Text style={styles.promoSuccessDesc}>
+                      {promoPreview.promo?.type === 'GIFT'
+                        ? `Sovg‘a: ${promoPreview.promo.giftName || 'Gilamcha'}`
+                        : promoDiscount > 0
+                        ? `-${new Intl.NumberFormat('uz-UZ').format(promoDiscount)} so‘m chegirma`
+                        : `-${promoPreview.promo?.discountPercent || 0}% chegirma`}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.promoRemoveBtn}
+                  onPress={handleRemovePromo}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.promoRemoveBtnText}>Bekor qilish</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View>
+                <View style={styles.promoInputRow}>
+                  <TextInput
+                    style={styles.promoInput}
+                    placeholder="Promokodni kiriting (masalan: YEC2026)"
+                    placeholderTextColor="#94a3b8"
+                    autoCapitalize="characters"
+                    value={promoInput}
+                    onChangeText={(text) => {
+                      setPromoInput(text);
+                      if (promoError) setPromoError(null);
+                    }}
+                  />
+                  <TouchableOpacity
+                    style={[
+                      styles.promoApplyBtn,
+                      (!promoInput.trim() || promoChecking) && styles.promoApplyBtnDisabled,
+                    ]}
+                    onPress={handleApplyPromo}
+                    disabled={!promoInput.trim() || promoChecking}
+                    activeOpacity={0.8}
+                  >
+                    {promoChecking ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <Text style={styles.promoApplyBtnText}>Qo‘llash</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+                {promoError && <Text style={styles.promoErrorText}>{promoError}</Text>}
+                {promoSuccess && <Text style={styles.promoSuccessText}>{promoSuccess}</Text>}
+              </View>
+            )}
+          </View>
+
           {/* Order Summary */}
           <View style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>Buyurtma tafsilotlari</Text>
@@ -254,13 +396,38 @@ export default function CheckoutScreen() {
               <Text style={styles.summaryValue}>{items.length} ta</Text>
             </View>
             <View style={styles.summaryRow}>
+              <Text style={styles.summaryText}>Mahsulotlar summasi:</Text>
+              <Text style={styles.summaryValue}>
+                {new Intl.NumberFormat('uz-UZ').format(subtotal)} so‘m
+              </Text>
+            </View>
+            {promoDiscount > 0 && (
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryText, styles.discountText]}>
+                  Promokod chegirmasi:
+                </Text>
+                <Text style={[styles.summaryValue, styles.discountValue]}>
+                  -{new Intl.NumberFormat('uz-UZ').format(promoDiscount)} so‘m
+                </Text>
+              </View>
+            )}
+            <View style={styles.summaryRow}>
               <Text style={styles.summaryText}>Yetkazib berish:</Text>
-              <Text style={styles.summaryValue}>Bepul</Text>
+              <Text
+                style={[
+                  styles.summaryValue,
+                  isFreeDelivery && styles.freeDeliveryValue,
+                ]}
+              >
+                {isFreeDelivery
+                  ? 'Bepul (Toshkent bo‘ylab)'
+                  : 'Kuryer orqali (5 mln+ bepul)'}
+              </Text>
             </View>
             <View style={[styles.summaryRow, styles.summaryTotalRow]}>
-              <Text style={styles.totalLabel}>To‘lanadigan summa:</Text>
+              <Text style={styles.totalLabel}>To‘lanadigan jami summa:</Text>
               <Text style={styles.totalValue}>
-                {new Intl.NumberFormat('uz-UZ').format(subtotal)} so‘m
+                {new Intl.NumberFormat('uz-UZ').format(finalTotal)} so‘m
               </Text>
             </View>
           </View>
@@ -278,7 +445,7 @@ export default function CheckoutScreen() {
               <ActivityIndicator color="#ffffff" />
             ) : (
               <Text style={styles.submitOrderBtnText}>
-                Buyurtmani tasdiqlash ({new Intl.NumberFormat('uz-UZ').format(subtotal)} so‘m)
+                Buyurtmani tasdiqlash ({new Intl.NumberFormat('uz-UZ').format(finalTotal)} so‘m)
               </Text>
             )}
           </TouchableOpacity>
@@ -457,6 +624,107 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     color: '#0284c7',
+  },
+  discountText: {
+    color: '#16a34a',
+  },
+  discountValue: {
+    color: '#16a34a',
+    fontWeight: '700',
+  },
+  freeDeliveryValue: {
+    color: '#16a34a',
+    fontWeight: '700',
+  },
+  promoInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  promoInput: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0f172a',
+    letterSpacing: 0.5,
+  },
+  promoApplyBtn: {
+    backgroundColor: '#0284c7',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  promoApplyBtnDisabled: {
+    backgroundColor: '#94a3b8',
+  },
+  promoApplyBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  promoErrorText: {
+    color: '#ef4444',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  promoSuccessText: {
+    color: '#16a34a',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  promoSuccessBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    borderRadius: 12,
+    padding: 12,
+  },
+  promoSuccessInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  promoSuccessIcon: {
+    fontSize: 22,
+    marginRight: 10,
+  },
+  promoSuccessTextCol: {
+    flex: 1,
+  },
+  promoSuccessCode: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#166534',
+    letterSpacing: 0.5,
+  },
+  promoSuccessDesc: {
+    fontSize: 12,
+    color: '#15803d',
+    marginTop: 2,
+  },
+  promoRemoveBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#fee2e2',
+  },
+  promoRemoveBtnText: {
+    color: '#b91c1c',
+    fontSize: 12,
+    fontWeight: '700',
   },
   bottomBar: {
     position: 'absolute',

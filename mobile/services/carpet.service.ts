@@ -86,3 +86,16 @@ export async function getFilterSizes(
   );
   return data?.success ? data.data : [];
 }
+
+/**
+ * Syncs user likes with backend when authenticated
+ */
+export async function toggleCarpetLike(carpetId: string): Promise<{ liked: boolean; likes: number }> {
+  const { data } = await api.post<{ liked: boolean; likes: number }>(`/carpets/${carpetId}/like`);
+  return data;
+}
+
+export async function getLikedCarpets(): Promise<Carpet[]> {
+  const { data } = await api.get<Carpet[]>('/carpets/liked');
+  return data ?? [];
+}
