@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  AppState,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useCartStore } from '@/store/cart.store';
@@ -22,7 +23,26 @@ import {
   type PromoPreviewResponse,
 } from '@/services/order.service';
 import { getErrorMessage } from '@/services/api';
+import { openTelegramBot } from '@/utils/telegram';
 import type { PaymentMethod } from '@/types/order';
+import type { UserProfile } from '@/types/user';
+
+const SHOWROOMS = [
+  {
+    id: 'algoritim',
+    name: 'Algoritim filiali',
+    address: 'Samarqand Yec Gilamlari, Algoritim',
+    lat: 41.262178,
+    lng: 69.147668,
+  },
+  {
+    id: 'olim-polvon',
+    name: 'Olim Polvon filiali',
+    address: 'YEC, Tashkent Ring Automobile Road, Olim Polvon',
+    lat: 41.229443,
+    lng: 69.173027,
+  },
+];
 
 export default function CheckoutScreen() {
   const router = useRouter();
@@ -32,6 +52,10 @@ export default function CheckoutScreen() {
 
   const user = useAuthStore((state) => state.user);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const refreshProfile = useAuthStore((state) => state.refreshProfile);
+
+  const profile = user as UserProfile | null;
+  const isTelegramLinked = Boolean(profile?.isTelegramLinked);
 
   const subtotal = getSubtotal();
 
@@ -41,9 +65,27 @@ export default function CheckoutScreen() {
   const [phone2, setPhone2] = useState('');
   const [address, setAddress] = useState(user?.address || '');
   const [locationText, setLocationText] = useState(user?.address || 'Toshkent shahri');
+  const [locationLat, setLocationLat] = useState<number>(user?.lat || 41.311081);
+  const [locationLng, setLocationLng] = useState<number>(user?.lng || 69.279723);
+  const [region, setRegion] = useState<'TASHKENT' | 'REGION'>('TASHKENT');
+  const [selectedShowroom, setSelectedShowroom] = useState<string | null>(null);
   const [comment, setComment] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [loading, setLoading] = useState(false);
+
+  // Telegram Linking state
+  const [linkingTelegram, setLinkingTelegram] = useState(false);
+
+  // Auto-refresh profile when returning from Telegram app to update isTelegramLinked
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        refreshProfile();
+      }
+    });
+    return () => sub.remove();
+  }, [isAuthenticated, refreshProfile]);
 
   // Promo Code States
   const [promoInput, setPromoInput] = useState('');
@@ -58,7 +100,34 @@ export default function CheckoutScreen() {
     promoPreview?.pricing?.totalAfterPromo != null && promoPreview.state === 'valid'
       ? promoPreview.pricing.totalAfterPromo
       : subtotal;
-  const isFreeDelivery = subtotal >= 5000000;
+
+  const isInTashkent =
+    region === 'TASHKENT' ||
+    (locationLat >= 41.1 && locationLat <= 41.45 && locationLng >= 69.1 && locationLng <= 69.45) ||
+    address.toLowerCase().includes('toshkent');
+  const isFreeDelivery = isInTashkent && subtotal >= 5000000;
+
+  const handleSelectShowroom = (showroom: (typeof SHOWROOMS)[0]) => {
+    if (selectedShowroom === showroom.id) {
+      setSelectedShowroom(null);
+      setAddress('');
+      setLocationText('Toshkent shahri');
+      setLocationLat(41.311081);
+      setLocationLng(69.279723);
+    } else {
+      setSelectedShowroom(showroom.id);
+      setAddress(showroom.address);
+      setLocationText(showroom.address);
+      setLocationLat(showroom.lat);
+      setLocationLng(showroom.lng);
+      setRegion('TASHKENT');
+    }
+  };
+
+  const handleConnectTelegram = async () => {
+    setLinkingTelegram(true);
+    await openTelegramBot(profile?.telegramJoinToken);
+  };
 
   const handleApplyPromo = async () => {
     const trimmed = promoInput.trim().toUpperCase();
@@ -150,8 +219,8 @@ export default function CheckoutScreen() {
         phone: phone.trim(),
         phone2: phone2.trim() ? phone2.trim() : undefined,
         address: address.trim(),
-        locationLat: 41.311081, // Default Tashkent coordinates
-        locationLng: 69.279723,
+        locationLat: locationLat || 41.311081,
+        locationLng: locationLng || 69.279723,
         locationText: locationText.trim() || address.trim(),
         paymentMethod: paymentMethod,
         comment: comment.trim() || undefined,
@@ -258,14 +327,99 @@ export default function CheckoutScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Yetkazib berish manzili</Text>
 
+            {/* Region Selector */}
+            <View style={styles.regionSelectorRow}>
+              <TouchableOpacity
+                style={[
+                  styles.regionBtn,
+                  region === 'TASHKENT' && styles.regionBtnActive,
+                ]}
+                onPress={() => {
+                  setRegion('TASHKENT');
+                  setLocationLat(41.311081);
+                  setLocationLng(69.279723);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.regionBtnText,
+                    region === 'TASHKENT' && styles.regionBtnTextActive,
+                  ]}
+                >
+                  🏙️ Toshkent shahri
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.regionBtn,
+                  region === 'REGION' && styles.regionBtnActive,
+                ]}
+                onPress={() => {
+                  setRegion('REGION');
+                  setSelectedShowroom(null);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.regionBtnText,
+                    region === 'REGION' && styles.regionBtnTextActive,
+                  ]}
+                >
+                  🗺️ Viloyat / Boshqa hudud
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Showroom Pickup Chips */}
+            <View style={styles.showroomBlock}>
+              <Text style={styles.subLabel}>Filialdan olib ketish (Showroom):</Text>
+              <View style={styles.showroomChipsRow}>
+                {SHOWROOMS.map((sr) => {
+                  const isSelected = selectedShowroom === sr.id;
+                  return (
+                    <TouchableOpacity
+                      key={sr.id}
+                      style={[
+                        styles.showroomChip,
+                        isSelected && styles.showroomChipActive,
+                      ]}
+                      onPress={() => handleSelectShowroom(sr)}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.showroomChipText,
+                          isSelected && styles.showroomChipTextActive,
+                        ]}
+                      >
+                        {isSelected ? '✓ ' : '📍 '}
+                        {sr.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
             <View style={styles.inputGroup}>
               <Text style={styles.label}>To‘liq manzil *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Toshkent shahri, Chilonzor tumani, 9-mavze, 12-uy"
+                placeholder={
+                  region === 'TASHKENT'
+                    ? 'Toshkent shahri, Chilonzor tumani, 9-mavze, 12-uy'
+                    : 'Viloyat, shahar/tuman, ko‘cha va uy raqami'
+                }
                 placeholderTextColor="#94a3b8"
                 value={address}
-                onChangeText={setAddress}
+                onChangeText={(val) => {
+                  setAddress(val);
+                  setLocationText(val);
+                  if (selectedShowroom) setSelectedShowroom(null);
+                }}
               />
             </View>
 
@@ -282,6 +436,43 @@ export default function CheckoutScreen() {
               />
             </View>
           </View>
+
+          {/* Section: Telegram Notifications */}
+          {isAuthenticated && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Telegram xabarnoma</Text>
+              {isTelegramLinked ? (
+                <View style={styles.telegramLinkedBox}>
+                  <Text style={styles.telegramCheckIcon}>✅</Text>
+                  <View style={styles.telegramTextCol}>
+                    <Text style={styles.telegramLinkedTitle}>Telegram bot ulangan</Text>
+                    <Text style={styles.telegramLinkedDesc}>
+                      Buyurtmangiz holati haqida yangilanishlar @YEC_Toshkent_bot orqali yuboriladi
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.telegramUnlinkedBox}>
+                  <View style={styles.telegramUnlinkedTop}>
+                    <Text style={styles.telegramIcon}>📱</Text>
+                    <View style={styles.telegramTextCol}>
+                      <Text style={styles.telegramUnlinkedTitle}>Telegram botni ulash</Text>
+                      <Text style={styles.telegramUnlinkedDesc}>
+                        Buyurtma holatini real vaqtda kuzatib borish uchun botni ulang
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.telegramConnectBtn}
+                    onPress={handleConnectTelegram}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.telegramConnectBtnText}>Telegramni ulash</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
 
           {/* Section: Payment Method */}
           <View style={styles.section}>
@@ -421,7 +612,9 @@ export default function CheckoutScreen() {
               >
                 {isFreeDelivery
                   ? 'Bepul (Toshkent bo‘ylab)'
-                  : 'Kuryer orqali (5 mln+ bepul)'}
+                  : isInTashkent
+                  ? 'Kuryer orqali (5 mln+ bepul)'
+                  : 'Viloyatga (BTS / kelishiladi)'}
               </Text>
             </View>
             <View style={[styles.summaryRow, styles.summaryTotalRow]}>
@@ -726,6 +919,134 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  regionSelectorRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  regionBtn: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1.5,
+    borderColor: '#e2e8f0',
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  regionBtnActive: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#0284c7',
+  },
+  regionBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  regionBtnTextActive: {
+    color: '#0284c7',
+  },
+  showroomBlock: {
+    marginBottom: 12,
+  },
+  subLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+    marginBottom: 6,
+  },
+  showroomChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  showroomChip: {
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  showroomChipActive: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#0284c7',
+  },
+  showroomChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  showroomChipTextActive: {
+    color: '#0284c7',
+    fontWeight: '700',
+  },
+  telegramLinkedBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    borderRadius: 12,
+    padding: 12,
+  },
+  telegramCheckIcon: {
+    fontSize: 22,
+    marginRight: 10,
+  },
+  telegramTextCol: {
+    flex: 1,
+  },
+  telegramLinkedTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  telegramLinkedDesc: {
+    fontSize: 11,
+    color: '#15803d',
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  telegramUnlinkedBox: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 12,
+  },
+  telegramUnlinkedTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  telegramIcon: {
+    fontSize: 22,
+    marginRight: 10,
+  },
+  telegramUnlinkedTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  telegramUnlinkedDesc: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  telegramConnectBtn: {
+    backgroundColor: '#0284c7',
+    paddingVertical: 9,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  telegramConnectBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   bottomBar: {
     position: 'absolute',
     bottom: 0,
@@ -753,3 +1074,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
+

@@ -15,6 +15,7 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   restoreSession: () => Promise<void>;
+  refreshProfile: () => Promise<UserProfile | null>;
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => Promise<void>;
   updateUser: (payload: UpdateProfilePayload) => Promise<UserProfile>;
@@ -42,6 +43,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // If token is invalid/expired and refresh failed in interceptor
       await clearAuthTokens();
       set({ user: null, isAuthenticated: false, isLoading: false });
+    }
+  },
+
+  refreshProfile: async () => {
+    try {
+      const profile = await getCurrentUserProfile();
+      set({ user: profile, isAuthenticated: true });
+      return profile;
+    } catch (error) {
+      return null;
     }
   },
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,17 +7,65 @@ import {
   TouchableOpacity,
   SafeAreaView,
   Alert,
+  AppState,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/store/auth.store';
 import { useCartStore } from '@/store/cart.store';
 import { useFavoritesStore } from '@/store/favorites.store';
+import { openTelegramBot } from '@/utils/telegram';
+import type { UserProfile } from '@/types/user';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const logout = useAuthStore((state) => state.logout);
+  const refreshProfile = useAuthStore((state) => state.refreshProfile);
+
+  const [linkingTelegram, setLinkingTelegram] = useState(false);
+  const [checkingTelegram, setCheckingTelegram] = useState(false);
+
+  const profile = user as UserProfile | null;
+  const isTelegramLinked = Boolean(profile?.isTelegramLinked);
+
+  // Auto-refresh profile when returning from Telegram app
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        refreshProfile();
+      }
+    });
+    return () => sub.remove();
+  }, [isAuthenticated, refreshProfile]);
+
+  const handleConnectTelegram = async () => {
+    const token = profile?.telegramJoinToken;
+    setLinkingTelegram(true);
+    await openTelegramBot(token);
+  };
+
+  const handleCheckTelegramStatus = async () => {
+    try {
+      setCheckingTelegram(true);
+      const fresh = await refreshProfile();
+      if (fresh?.isTelegramLinked) {
+        Alert.alert(
+          'Muvaffaqiyatli!',
+          'Profilingiz Telegram botga muvaffaqiyatli bog‘landi.',
+        );
+      } else {
+        Alert.alert(
+          'Hali ulanmagan',
+          'Telegram botga o‘tib /start tugmasini bosing va qaytadan tekshirib ko‘ring.',
+        );
+      }
+    } finally {
+      setCheckingTelegram(false);
+    }
+  };
 
   const cartCount = useCartStore((state) => state.getTotalCount());
   const favoritesCount = useFavoritesStore(
@@ -111,6 +159,71 @@ export default function ProfileScreen() {
                   <Text style={styles.badgeText}>{favoritesCount}</Text>
                 </View>
               </TouchableOpacity>
+            </View>
+
+            {/* Telegram Notification & Account Binding Card */}
+            <View style={styles.menuSection}>
+              <Text style={styles.sectionTitle}>Xabarnomalar & Bot</Text>
+
+              {isTelegramLinked ? (
+                <View style={styles.telegramLinkedCard}>
+                  <View style={styles.telegramLinkedHeader}>
+                    <Text style={styles.telegramCheckIcon}>✅</Text>
+                    <View style={styles.telegramLinkedTexts}>
+                      <Text style={styles.telegramLinkedTitle}>Telegram bot ulangan</Text>
+                      <Text style={styles.telegramLinkedSubtitle}>
+                        Buyurtma o‘zgarishlari va yangiliklar @YEC_Toshkent_bot orqali yuboriladi
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.telegramOpenBotBtn}
+                    onPress={() => openTelegramBot(profile?.telegramJoinToken)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.telegramOpenBotBtnText}>
+                      Botni ochish (@YEC_Toshkent_bot)
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.telegramUnlinkedCard}>
+                  <View style={styles.telegramUnlinkedHeader}>
+                    <Text style={styles.telegramIcon}>📱</Text>
+                    <View style={styles.telegramLinkedTexts}>
+                      <Text style={styles.telegramUnlinkedTitle}>Telegram botni ulash</Text>
+                      <Text style={styles.telegramUnlinkedSubtitle}>
+                        Buyurtmalaringiz holatini Telegram orqali real vaqtda kuzatib boring
+                      </Text>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.telegramConnectBtn}
+                    onPress={handleConnectTelegram}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.telegramConnectBtnText}>Telegramni ulash</Text>
+                  </TouchableOpacity>
+
+                  {linkingTelegram && (
+                    <TouchableOpacity
+                      style={styles.telegramCheckBtn}
+                      onPress={handleCheckTelegramStatus}
+                      disabled={checkingTelegram}
+                      activeOpacity={0.8}
+                    >
+                      {checkingTelegram ? (
+                        <ActivityIndicator size="small" color="#0284c7" />
+                      ) : (
+                        <Text style={styles.telegramCheckBtnText}>
+                          Ulanish holatini tekshirish 🔄
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </View>
 
             {/* Logout Action */}
@@ -392,4 +505,103 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#475569',
   },
+  telegramLinkedCard: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    borderRadius: 14,
+    padding: 14,
+  },
+  telegramLinkedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  telegramCheckIcon: {
+    fontSize: 22,
+    marginRight: 10,
+  },
+  telegramLinkedTexts: {
+    flex: 1,
+  },
+  telegramLinkedTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  telegramLinkedSubtitle: {
+    fontSize: 12,
+    color: '#15803d',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  telegramOpenBotBtn: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    paddingVertical: 9,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  telegramOpenBotBtnText: {
+    color: '#166534',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  telegramUnlinkedCard: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 14,
+    padding: 14,
+  },
+  telegramUnlinkedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  telegramIcon: {
+    fontSize: 24,
+    marginRight: 10,
+  },
+  telegramUnlinkedTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  telegramUnlinkedSubtitle: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  telegramConnectBtn: {
+    backgroundColor: '#0284c7',
+    paddingVertical: 11,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  telegramConnectBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  telegramCheckBtn: {
+    marginTop: 8,
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    paddingVertical: 9,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  telegramCheckBtnText: {
+    color: '#0284c7',
+    fontSize: 12,
+    fontWeight: '700',
+  },
 });
+
