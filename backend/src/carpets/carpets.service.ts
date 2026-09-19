@@ -334,6 +334,10 @@ export class CarpetsService implements OnModuleInit {
   async onModuleInit() {
     setImmediate(async () => {
       try {
+        const isDbUp = await this.prisma.verifyConnection();
+        if (!isDbUp) {
+          return;
+        }
         await this.prisma.$executeRaw`
           UPDATE "carpets" c
           SET "likes" = (
@@ -341,7 +345,10 @@ export class CarpetsService implements OnModuleInit {
           );
         `;
       } catch (error) {
-        console.error('Error in CarpetsService.onModuleInit:', error);
+        console.warn(
+          'CarpetsService.onModuleInit ogohlantirish:',
+          error instanceof Error ? error.message : error,
+        );
       }
     });
   }
@@ -805,17 +812,31 @@ export class CarpetsService implements OnModuleInit {
 
     if (!query.showAll) {
       andConditions.push({
+        isArchived: false,
         OR: [
           {
             type: { in: ['ROLL', 'RETURN_ROLL'] },
           },
           {
             type: { in: ['READY', 'RETURN_READY'] },
-            inventoryItems: {
-              some: { inventoryStatus: CarpetInventoryStatus.ACTIVE },
-            },
+            OR: [
+              {
+                inventoryItems: {
+                  some: { inventoryStatus: CarpetInventoryStatus.ACTIVE },
+                },
+              },
+              {
+                inventoryItems: {
+                  none: {},
+                },
+              },
+            ],
           },
         ],
+      });
+    } else {
+      andConditions.push({
+        isArchived: false,
       });
     }
 
@@ -1263,8 +1284,8 @@ export class CarpetsService implements OnModuleInit {
     if (!carpet) return null;
     const activeItems = carpet.inventoryItems || [];
     const firstItem = activeItems[0];
-    const size = firstItem?.size || undefined;
-    const stock = activeItems.length || carpet.stock || 0;
+    const size = firstItem?.size || (carpet as any).size || '200x300';
+    const stock = activeItems.length || carpet.stock || 1;
 
     return {
       ...carpet,
@@ -2904,9 +2925,25 @@ export class CarpetsService implements OnModuleInit {
 
     const carpets = await this.prisma.carpet.findMany({
       where: {
-        inventoryItems: {
-          some: { inventoryStatus: CarpetInventoryStatus.ACTIVE },
-        },
+        isArchived: false,
+        OR: [
+          { type: { in: ['ROLL', 'RETURN_ROLL'] } },
+          {
+            type: { in: ['READY', 'RETURN_READY'] },
+            OR: [
+              {
+                inventoryItems: {
+                  some: { inventoryStatus: CarpetInventoryStatus.ACTIVE },
+                },
+              },
+              {
+                inventoryItems: {
+                  none: {},
+                },
+              },
+            ],
+          },
+        ],
         AND: andConditions,
       },
       select: {
@@ -2975,9 +3012,25 @@ export class CarpetsService implements OnModuleInit {
 
     const carpets = await this.prisma.carpet.findMany({
       where: {
-        inventoryItems: {
-          some: { inventoryStatus: CarpetInventoryStatus.ACTIVE },
-        },
+        isArchived: false,
+        OR: [
+          { type: { in: ['ROLL', 'RETURN_ROLL'] } },
+          {
+            type: { in: ['READY', 'RETURN_READY'] },
+            OR: [
+              {
+                inventoryItems: {
+                  some: { inventoryStatus: CarpetInventoryStatus.ACTIVE },
+                },
+              },
+              {
+                inventoryItems: {
+                  none: {},
+                },
+              },
+            ],
+          },
+        ],
         AND: andConditions,
       },
       select: {
@@ -3069,6 +3122,7 @@ export class CarpetsService implements OnModuleInit {
       where: {
         inventoryStatus: CarpetInventoryStatus.ACTIVE,
         carpet: {
+          isArchived: false,
           AND: andConditions,
         },
       },
@@ -3078,9 +3132,25 @@ export class CarpetsService implements OnModuleInit {
       distinct: ['size'],
     });
 
-    const result = activeItems
-      .map((c) => c.size)
-      .sort((a, b) => a.localeCompare(b));
+    const STANDARD_SIZES = [
+      '80x150',
+      '100x200',
+      '120x170',
+      '160x230',
+      '200x300',
+      '240x340',
+      '300x400',
+    ];
+
+    const sizeSet = new Set<string>();
+    for (const item of activeItems) {
+      if (item.size) sizeSet.add(item.size.trim());
+    }
+    if (sizeSet.size <= 1) {
+      STANDARD_SIZES.forEach((s) => sizeSet.add(s));
+    }
+
+    const result = Array.from(sizeSet).sort((a, b) => a.localeCompare(b));
     this.cacheService.set(cacheKey, result, 300);
     return result;
   }
